@@ -1,0 +1,11 @@
+{
+  "Name": "New Language Project",
+  "Author": "adityagarg",
+  "Version": "0.1.0",
+  "Description": "A Stardew Valley language mod.",
+  "UniqueID": "adityagarg.NewLanguageProject",
+  "EntryDll": "NewLanguageProject.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}
+
