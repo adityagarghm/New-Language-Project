@@ -1,4 +1,5 @@
-﻿using Microsoft.Xna.Framework;
+﻿using System;
+using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -46,12 +47,14 @@ namespace NewLanguageProject
             if (!Game1.player.currentLocation.IsFarm)
                 return;
 
-            foreach (var change in e.Added)
+            foreach (var addedItem in e.Added)
             {
-                if (change.Item is not StardewValley.Object item)
+                if (addedItem is not StardewValley.Object item)
                     continue;
 
-                if (item.Category != StardewValley.Object.CropsCategory)
+                if (item.Category != StardewValley.Object.VegetableCategory
+                    && item.Category != StardewValley.Object.FruitsCategory
+                    && item.Category != StardewValley.Object.flowersCategory)
                     continue;
 
                 if (Game1.random.NextDouble() > 0.25)
