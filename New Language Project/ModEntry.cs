@@ -16,7 +16,7 @@ namespace NewLanguageProject
         private bool shouldGiveEnergyBonus;
         private int pendingEnergyBonus;
         private int temporaryEnergyBonus;
-
+        private bool shouldApplyHeatPenalty;
         public override void Entry(IModHelper helper)
         {
             helper.Events.GameLoop.DayStarted += OnDayStarted;
@@ -56,6 +56,7 @@ namespace NewLanguageProject
 
             if (isHotDay)
             {
+                shouldApplyHeatPenalty = true;
                 Game1.addHUDMessage(new HUDMessage("Heat wave: stamina will drain faster today.", HUDMessage.error_type));
             }
         }
@@ -149,11 +150,13 @@ namespace NewLanguageProject
                 shouldDropWindyItems = false;
                 DropWindyDayItems();
             }
-            if (isHotDay)
+            if (shouldApplyHeatPenalty)
             {
+                shouldApplyHeatPenalty = false;
+
                 Game1.player.Stamina = Game1.player.Stamina * 0.85f;
 
-                this.Monitor.Log($"Heat reduced stamina. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
+                this.Monitor.Log($"Heat reduced stamina once. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
             }
         }
     }
