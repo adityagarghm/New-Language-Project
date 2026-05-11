@@ -12,32 +12,55 @@ namespace NewLanguageProject
         private bool isWindyDay;
         private bool isHotDay;
         private bool addingBonusItem;
+        private bool shouldDropWindyItems;
+        private bool shouldGiveEnergyBonus;
+        private int pendingEnergyBonus;
+        private int temporaryEnergyBonus;
 
         public override void Entry(IModHelper helper)
         {
             helper.Events.GameLoop.DayStarted += OnDayStarted;
             helper.Events.Player.InventoryChanged += OnInventoryChanged;
             helper.Events.GameLoop.TimeChanged += OnTimeChanged;
+            helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
+            if (temporaryEnergyBonus > 0)
+            {
+                Game1.player.maxStamina.Value -= temporaryEnergyBonus;
+                temporaryEnergyBonus = 0;
+            }
+            if (Game1.random.NextDouble() < 0.67) // probability of energy bonus
+            {
+                pendingEnergyBonus = Game1.random.Next(100, 201);
+                shouldGiveEnergyBonus = true;
+            }
+            this.Monitor.Log("DayStarted event is running.", LogLevel.Info);
+
             isRainyOvergrowthDay = Game1.isRaining || Game1.isLightning;
             isWindyDay = Game1.isDebrisWeather;
             isHotDay = Game1.currentSeason == "summer" && !Game1.isRaining && !Game1.isLightning;
 
             if (isRainyOvergrowthDay)
-                Game1.addHUDMessage(new HUDMessage("Rain has caused overgrowth. Crops may yield extra.", HUDMessage.newQuest_type));
+            {
+                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops may give extra yield today.", HUDMessage.newQuest_type));
+            }
 
             if (isWindyDay)
-                DropWindyDayItems();
+            {
+                Game1.addHUDMessage(new HUDMessage("Windy day: wood and seeds may appear around the farm.", HUDMessage.newQuest_type));
+                shouldDropWindyItems = true;
+            }
 
             if (isHotDay)
             {
-                Game1.player.Stamina *= 0.85f;
-                Game1.addHUDMessage(new HUDMessage("The heat is draining your stamina.", HUDMessage.error_type));
+                Game1.addHUDMessage(new HUDMessage("Heat wave: stamina will drain faster today.", HUDMessage.error_type));
             }
         }
+
+
 
         private void OnInventoryChanged(object? sender, InventoryChangedEventArgs e)
         {
@@ -61,7 +84,7 @@ namespace NewLanguageProject
                     continue;
 
                 addingBonusItem = true;
-
+ 
                 StardewValley.Object bonus = new StardewValley.Object(item.ItemId, 1);
                 Game1.player.addItemToInventoryBool(bonus);
 
@@ -104,6 +127,34 @@ namespace NewLanguageProject
                 return;
 
             Game1.player.Stamina = Math.Max(0, Game1.player.Stamina - 1f);
+        }
+        private void OnOneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
+        {
+            if (!Context.IsWorldReady)
+                return;
+
+            if (shouldGiveEnergyBonus)
+            {
+                shouldGiveEnergyBonus = false;
+                temporaryEnergyBonus = pendingEnergyBonus;
+                Game1.player.maxStamina.Value += temporaryEnergyBonus;
+                Game1.player.Stamina = Game1.player.MaxStamina;
+                Game1.addHUDMessage(new HUDMessage($"You woke up energized. +{pendingEnergyBonus} energy.", HUDMessage.newQuest_type));
+
+                this.Monitor.Log($"Gave player +{pendingEnergyBonus} energy. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
+            }
+
+            if (shouldDropWindyItems)
+            {
+                shouldDropWindyItems = false;
+                DropWindyDayItems();
+            }
+            if (isHotDay)
+            {
+                Game1.player.Stamina = Game1.player.Stamina * 0.85f;
+
+                this.Monitor.Log($"Heat reduced stamina. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
+            }
         }
     }
 }
