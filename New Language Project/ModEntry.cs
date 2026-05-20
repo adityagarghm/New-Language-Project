@@ -8,15 +8,19 @@ namespace NewLanguageProject
 {
     public class ModEntry : Mod
     {
+        private const string EnergyBonusKey = "adityagarg.NewLanguageProject/TemporaryEnergyBonus";
+
         private bool isRainyOvergrowthDay;
         private bool isWindyDay;
         private bool isHotDay;
         private bool addingBonusItem;
         private bool shouldDropWindyItems;
         private bool shouldGiveEnergyBonus;
+        private bool shouldApplyHeatPenalty;
+
         private int pendingEnergyBonus;
         private int temporaryEnergyBonus;
-        private bool shouldApplyHeatPenalty;
+
         public override void Entry(IModHelper helper)
         {
             helper.Events.GameLoop.DayStarted += OnDayStarted;
@@ -27,16 +31,20 @@ namespace NewLanguageProject
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
-            if (temporaryEnergyBonus > 0)
+            RemoveTemporaryEnergyBonus();
+
+            shouldDropWindyItems = false;
+            shouldGiveEnergyBonus = false;
+            shouldApplyHeatPenalty = false;
+
+            Game1.player.health = 500;
+
+            if (Game1.random.NextDouble() < 0.67)
             {
-                Game1.player.maxStamina.Value -= temporaryEnergyBonus;
-                temporaryEnergyBonus = 0;
-            }
-            if (Game1.random.NextDouble() < 0.67) // probability of energy bonus
-            {
-                pendingEnergyBonus = Game1.random.Next(100, 201);
+                pendingEnergyBonus = Game1.random.Next(100, 151);
                 shouldGiveEnergyBonus = true;
             }
+
             this.Monitor.Log("DayStarted event is running.", LogLevel.Info);
 
             isRainyOvergrowthDay = Game1.isRaining || Game1.isLightning;
@@ -61,7 +69,22 @@ namespace NewLanguageProject
             }
         }
 
+        private void RemoveTemporaryEnergyBonus()
+        {
+            if (!Game1.player.modData.TryGetValue(EnergyBonusKey, out string? value))
+                return;
 
+            if (int.TryParse(value, out int oldBonus))
+            {
+                Game1.player.maxStamina.Value -= oldBonus;
+
+                if (Game1.player.Stamina > Game1.player.MaxStamina)
+                    Game1.player.Stamina = Game1.player.MaxStamina;
+            }
+
+            Game1.player.modData.Remove(EnergyBonusKey);
+            temporaryEnergyBonus = 0;
+        }
 
         private void OnInventoryChanged(object? sender, InventoryChangedEventArgs e)
         {
@@ -85,7 +108,7 @@ namespace NewLanguageProject
                     continue;
 
                 addingBonusItem = true;
- 
+
                 StardewValley.Object bonus = new StardewValley.Object(item.ItemId, 1);
                 Game1.player.addItemToInventoryBool(bonus);
 
@@ -109,8 +132,8 @@ namespace NewLanguageProject
                 Vector2 pixelPosition = tile * 64f;
 
                 string itemId = Game1.random.NextDouble() < 0.65
-                    ? "388" // wood
-                    : "770"; // mixed seeds
+                    ? "388"
+                    : "770";
 
                 StardewValley.Object item = new StardewValley.Object(itemId, 1);
                 Game1.createItemDebris(item, pixelPosition, Game1.random.Next(4), farm);
@@ -129,6 +152,7 @@ namespace NewLanguageProject
 
             Game1.player.Stamina = Math.Max(0, Game1.player.Stamina - 1f);
         }
+
         private void OnOneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
         {
             if (!Context.IsWorldReady)
@@ -137,12 +161,16 @@ namespace NewLanguageProject
             if (shouldGiveEnergyBonus)
             {
                 shouldGiveEnergyBonus = false;
+
                 temporaryEnergyBonus = pendingEnergyBonus;
+
                 Game1.player.maxStamina.Value += temporaryEnergyBonus;
                 Game1.player.Stamina = Game1.player.MaxStamina;
-                Game1.addHUDMessage(new HUDMessage($"You woke up energized. +{pendingEnergyBonus} energy.", HUDMessage.newQuest_type));
+                Game1.player.modData[EnergyBonusKey] = temporaryEnergyBonus.ToString();
 
-                this.Monitor.Log($"Gave player +{pendingEnergyBonus} energy. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
+                Game1.addHUDMessage(new HUDMessage($"You woke up energized. +{pendingEnergyBonus} max energy today.", HUDMessage.newQuest_type));
+
+                this.Monitor.Log($"Gave player +{pendingEnergyBonus} temporary max energy. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
             }
 
             if (shouldDropWindyItems)
@@ -150,6 +178,7 @@ namespace NewLanguageProject
                 shouldDropWindyItems = false;
                 DropWindyDayItems();
             }
+
             if (shouldApplyHeatPenalty)
             {
                 shouldApplyHeatPenalty = false;
