@@ -18,6 +18,15 @@ namespace NewLanguageProject
         private const string StoneId = "390";
         private const string TimeCharmItemId = "adityagarg.NewLanguageProject_TimeCharm";
         private const string ConveyorItemId = "adityagarg.NewLanguageProject_Conveyor";
+
+        private static readonly Vector2[] AdjacentDirections =
+        {
+            new Vector2(1, 0),
+            new Vector2(-1, 0),
+            new Vector2(0, 1),
+            new Vector2(0, -1)
+        };
+
         private bool isRainyOvergrowthDay;
         private bool isWindyDay;
         private bool isHotDay;
@@ -91,8 +100,21 @@ namespace NewLanguageProject
         {
             if (!Context.IsWorldReady)
                 return;
-            if (e.Button == SButton.T)
-                TryActivateTimeCharm();
+
+            if (e.Button == SButton.MouseRight || e.Button == SButton.ControllerA)
+            {
+                if (TryUseTimeCharm())
+                {
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+
+                if (TryPlaceHeldItemOnConveyor(e.Cursor.GrabTile))
+                {
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+            }
 
             if (e.Button == SButton.L)
                 SetLinkedSourceChest();
@@ -103,36 +125,81 @@ namespace NewLanguageProject
             if (e.Button == SButton.J)
                 MoveOneStackBetweenLinkedChests();
 
-            if (e.Button == SButton.C)
-                SetConveyorSourceChest();
-
-            if (e.Button == SButton.V)
-                SetConveyorOutputChest();
-
-            if (e.Button == SButton.B)
-                RunConveyorOnce(showMessage: true);
-
             if (e.Button == SButton.P)
                 AutoPetAnimalsAndPets();
         }
 
-        private void TryActivateTimeCharm()
+        private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
         {
+            if (e.NameWithoutLocale.IsEquivalentTo("Data/Objects"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, ObjectData>().Data;
+
+                    data[TimeCharmItemId] = new ObjectData
+                    {
+                        Name = "Time Charm",
+                        DisplayName = "Time Charm",
+                        Description = "Slows time for one in-game hour.",
+                        Type = "Crafting",
+                        Category = StardewValley.Object.CraftingCategory,
+                        Price = 100,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 688
+                    };
+                });
+            }
+
+            if (e.NameWithoutLocale.IsEquivalentTo("Data/BigCraftables"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, BigCraftableData>().Data;
+
+                    data[ConveyorItemId] = new BigCraftableData
+                    {
+                        Name = "Conveyor",
+                        DisplayName = "Conveyor",
+                        Description = "Carries a placed item to the machine at the end of the belt.",
+                        Price = 100,
+                        Fragility = 0,
+                        CanBePlacedIndoors = true,
+                        CanBePlacedOutdoors = true,
+                        Texture = "TileSheets/Craftables",
+                        SpriteIndex = 275
+                    };
+                });
+            }
+
+            if (e.NameWithoutLocale.IsEquivalentTo("Data/CraftingRecipes"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, string>().Data;
+
+                    data["Time Charm"] = $"{WoodId} 10/Home/{TimeCharmItemId}/false/default/";
+                    data["Conveyor"] = $"{StoneId} 20/Home/{ConveyorItemId}/true/default/";
+                });
+            }
+        }
+
+        private bool TryUseTimeCharm()
+        {
+            if (Game1.player.CurrentItem?.ItemId != TimeCharmItemId)
+                return false;
+
             if (slowedTimeAdvancesRemaining > 0)
             {
                 Game1.addHUDMessage(new HUDMessage("Time is already slowed.", HUDMessage.error_type));
-                return;
+                return true;
             }
 
-            if (!RemoveItems(Game1.player.Items, WoodId, 10))
-            {
-                Game1.addHUDMessage(new HUDMessage("Need 10 wood to slow time.", HUDMessage.error_type));
-                return;
-            }
-
+            Game1.player.reduceActiveItemByOne();
             slowedTimeAdvancesRemaining = 6;
             shouldBlockNextTimeAdvance = true;
             Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
+            return true;
         }
 
         private void OnTimeChanged(object? sender, TimeChangedEventArgs e)
@@ -148,7 +215,6 @@ namespace NewLanguageProject
             if (isRainyOvergrowthDay && Game1.player.currentLocation.IsOutdoors)
                 Game1.player.health = Math.Min(500, Game1.player.health + 2);
 
-            RunConveyorOnce(showMessage: false);
         }
 
         private void HandleTimeSlow(TimeChangedEventArgs e)
@@ -340,66 +406,76 @@ namespace NewLanguageProject
             Game1.addHUDMessage(new HUDMessage("Source chest is empty.", HUDMessage.error_type));
         }
 
-        private void SetConveyorSourceChest()
+        private bool TryPlaceHeldItemOnConveyor(Vector2 conveyorTile)
         {
-            Chest? chest = GetFacingChest();
+            GameLocation location = Game1.player.currentLocation;
 
-            if (chest is null)
+            if (!location.objects.TryGetValue(conveyorTile, out StardewValley.Object conveyor) || conveyor.ItemId != ConveyorItemId)
+                return false;
+
+            Item? heldItem = Game1.player.CurrentItem;
+
+            if (heldItem is null)
             {
-                Game1.addHUDMessage(new HUDMessage("Face a wheat chest first.", HUDMessage.error_type));
-                return;
+                Game1.addHUDMessage(new HUDMessage("Hold an item before placing it on the conveyor.", HUDMessage.error_type));
+                return true;
             }
 
-            conveyorSourceChest = GetCurrentChestLink();
-            Game1.addHUDMessage(new HUDMessage("Conveyor source set.", HUDMessage.newQuest_type));
+            if (heldItem.ItemId == ConveyorItemId)
+                return false;
+
+            foreach (StardewValley.Object machine in FindMachinesAtEndOfConveyor(location, conveyorTile))
+            {
+                Item oneItem = heldItem.getOne();
+                oneItem.Stack = 1;
+
+                if (!machine.performObjectDropInAction(oneItem, false, Game1.player))
+                    continue;
+
+                Game1.player.reduceActiveItemByOne();
+                Game1.addHUDMessage(new HUDMessage($"Conveyor sent {heldItem.DisplayName}.", HUDMessage.newQuest_type));
+                return true;
+            }
+
+            Game1.addHUDMessage(new HUDMessage("The machine at the end cannot use that item.", HUDMessage.error_type));
+            return true;
         }
 
-        private void SetConveyorOutputChest()
+        private IEnumerable<StardewValley.Object> FindMachinesAtEndOfConveyor(GameLocation location, Vector2 startTile)
         {
-            Chest? chest = GetFacingChest();
+            Queue<Vector2> tilesToCheck = new Queue<Vector2>();
+            HashSet<Vector2> checkedTiles = new HashSet<Vector2>();
+            HashSet<Vector2> yieldedMachineTiles = new HashSet<Vector2>();
 
-            if (chest is null)
+            tilesToCheck.Enqueue(startTile);
+            checkedTiles.Add(startTile);
+
+            while (tilesToCheck.Count > 0)
             {
-                Game1.addHUDMessage(new HUDMessage("Face an output chest first.", HUDMessage.error_type));
-                return;
+                Vector2 tile = tilesToCheck.Dequeue();
+
+                foreach (Vector2 direction in AdjacentDirections)
+                {
+                    Vector2 nextTile = tile + direction;
+
+                    if (!location.objects.TryGetValue(nextTile, out StardewValley.Object obj))
+                        continue;
+
+                    if (obj.ItemId == ConveyorItemId)
+                    {
+                        if (checkedTiles.Add(nextTile))
+                            tilesToCheck.Enqueue(nextTile);
+
+                        continue;
+                    }
+
+                    if (obj is Chest)
+                        continue;
+
+                    if (yieldedMachineTiles.Add(nextTile))
+                        yield return obj;
+                }
             }
-
-            conveyorOutputChest = GetCurrentChestLink();
-            Game1.addHUDMessage(new HUDMessage("Conveyor output set.", HUDMessage.newQuest_type));
-        }
-
-        private void RunConveyorOnce(bool showMessage)
-        {
-            Chest? source = GetChest(conveyorSourceChest);
-            Chest? output = GetChest(conveyorOutputChest);
-
-            if (source is null || output is null)
-            {
-                if (showMessage)
-                    Game1.addHUDMessage(new HUDMessage("Set conveyor source with C and output with V.", HUDMessage.error_type));
-
-                return;
-            }
-            if (!RemoveItems(source.Items, WheatId, 1))
-            {
-                if (showMessage)
-                    Game1.addHUDMessage(new HUDMessage("No wheat in conveyor source.", HUDMessage.error_type));
-
-                return;
-            }
-            Item? leftover = output.addItem(new StardewValley.Object(FlourId, 1));
-
-            if (leftover is not null)
-            {
-                source.addItem(new StardewValley.Object(WheatId, 1));
-                if (showMessage)
-                    Game1.addHUDMessage(new HUDMessage("Conveyor output chest is full.", HUDMessage.error_type));
-
-                return;
-            }
-
-            if (showMessage)
-                Game1.addHUDMessage(new HUDMessage("Conveyor milled 1 wheat into flour.", HUDMessage.newQuest_type));
         }
 
         private void AutoPetAnimalsAndPets()
