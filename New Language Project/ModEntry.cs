@@ -109,7 +109,7 @@ namespace NewLanguageProject
                     return;
                 }
 
-                if (TryPlaceHeldItemOnConveyor(e.Cursor.GrabTile))
+                if (TryPlaceHeldItemOnConveyor(e.Cursor.Tile, e.Cursor.GrabTile, Game1.player.GetGrabTile()))
                 {
                     this.Helper.Input.Suppress(e.Button);
                     return;
@@ -406,11 +406,12 @@ namespace NewLanguageProject
             Game1.addHUDMessage(new HUDMessage("Source chest is empty.", HUDMessage.error_type));
         }
 
-        private bool TryPlaceHeldItemOnConveyor(Vector2 conveyorTile)
+        private bool TryPlaceHeldItemOnConveyor(params Vector2[] possibleTiles)
         {
             GameLocation location = Game1.player.currentLocation;
+            Vector2? conveyorTile = FindClickedConveyorTile(location, possibleTiles);
 
-            if (!location.objects.TryGetValue(conveyorTile, out StardewValley.Object conveyor) || conveyor.ItemId != ConveyorItemId)
+            if (conveyorTile is null)
                 return false;
 
             Item? heldItem = Game1.player.CurrentItem;
@@ -424,7 +425,16 @@ namespace NewLanguageProject
             if (heldItem.ItemId == ConveyorItemId)
                 return false;
 
-            foreach (StardewValley.Object machine in FindMachinesAtEndOfConveyor(location, conveyorTile))
+            ConveyorPath path = FindConveyorPath(location, conveyorTile.Value);
+
+            if (path.Machines.Count == 0)
+            {
+                DrawConveyorPath(location, path.ConveyorTiles, Color.Yellow);
+                Game1.addHUDMessage(new HUDMessage($"Conveyor path has {path.ConveyorTiles.Count} belt(s), but no machine at the end.", HUDMessage.error_type));
+                return true;
+            }
+
+            foreach (StardewValley.Object machine in path.Machines)
             {
                 Item oneItem = heldItem.getOne();
                 oneItem.Stack = 1;
@@ -433,19 +443,34 @@ namespace NewLanguageProject
                     continue;
 
                 Game1.player.reduceActiveItemByOne();
-                Game1.addHUDMessage(new HUDMessage($"Conveyor sent {heldItem.DisplayName}.", HUDMessage.newQuest_type));
+                DrawConveyorPath(location, path.ConveyorTiles, Color.LimeGreen);
+                Game1.addHUDMessage(new HUDMessage($"Conveyor sent {heldItem.DisplayName} through {path.ConveyorTiles.Count} belt(s).", HUDMessage.newQuest_type));
                 return true;
             }
 
+            DrawConveyorPath(location, path.ConveyorTiles, Color.Red);
             Game1.addHUDMessage(new HUDMessage("The machine at the end cannot use that item.", HUDMessage.error_type));
             return true;
         }
 
-        private IEnumerable<StardewValley.Object> FindMachinesAtEndOfConveyor(GameLocation location, Vector2 startTile)
+        private Vector2? FindClickedConveyorTile(GameLocation location, IEnumerable<Vector2> possibleTiles)
+        {
+            foreach (Vector2 tile in possibleTiles)
+            {
+                if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && IsConveyor(obj))
+                    return tile;
+            }
+
+            return null;
+        }
+
+        private ConveyorPath FindConveyorPath(GameLocation location, Vector2 startTile)
         {
             Queue<Vector2> tilesToCheck = new Queue<Vector2>();
             HashSet<Vector2> checkedTiles = new HashSet<Vector2>();
             HashSet<Vector2> yieldedMachineTiles = new HashSet<Vector2>();
+            List<Vector2> conveyorTiles = new List<Vector2>();
+            List<StardewValley.Object> machines = new List<StardewValley.Object>();
 
             tilesToCheck.Enqueue(startTile);
             checkedTiles.Add(startTile);
@@ -453,6 +478,7 @@ namespace NewLanguageProject
             while (tilesToCheck.Count > 0)
             {
                 Vector2 tile = tilesToCheck.Dequeue();
+                conveyorTiles.Add(tile);
 
                 foreach (Vector2 direction in AdjacentDirections)
                 {
@@ -461,7 +487,7 @@ namespace NewLanguageProject
                     if (!location.objects.TryGetValue(nextTile, out StardewValley.Object obj))
                         continue;
 
-                    if (obj.ItemId == ConveyorItemId)
+                    if (IsConveyor(obj))
                     {
                         if (checkedTiles.Add(nextTile))
                             tilesToCheck.Enqueue(nextTile);
@@ -473,8 +499,25 @@ namespace NewLanguageProject
                         continue;
 
                     if (yieldedMachineTiles.Add(nextTile))
-                        yield return obj;
+                        machines.Add(obj);
                 }
+            }
+
+            return new ConveyorPath(conveyorTiles, machines);
+        }
+
+        private static bool IsConveyor(StardewValley.Object obj)
+        {
+            return obj.ItemId == ConveyorItemId
+                || obj.QualifiedItemId == $"(BC){ConveyorItemId}"
+                || obj.Name == "Conveyor";
+        }
+
+        private void DrawConveyorPath(GameLocation location, IEnumerable<Vector2> tiles, Color color)
+        {
+            foreach (Vector2 tile in tiles)
+            {
+                location.temporarySprites.Add(new TemporaryAnimatedSprite(10, tile * 64f, color, 1, false, 900f));
             }
         }
 
@@ -592,6 +635,18 @@ namespace NewLanguageProject
 
             public string LocationName { get; }
             public Vector2 Tile { get; }
+        }
+
+        private sealed class ConveyorPath
+        {
+            public ConveyorPath(List<Vector2> conveyorTiles, List<StardewValley.Object> machines)
+            {
+                ConveyorTiles = conveyorTiles;
+                Machines = machines;
+            }
+
+            public List<Vector2> ConveyorTiles { get; }
+            public List<StardewValley.Object> Machines { get; }
         }
     }
 }
