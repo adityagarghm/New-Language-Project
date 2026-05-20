@@ -5,9 +5,12 @@ using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
+using StardewValley.Buffs;
 using StardewValley.GameData.BigCraftables;
 using StardewValley.GameData.Objects;
+using StardewValley.GameData.Shops;
 using StardewValley.Objects;
+using StardewValley.TerrainFeatures;
 
 namespace NewLanguageProject
 {
@@ -18,6 +21,10 @@ namespace NewLanguageProject
         private const string StoneId = "390";
         private const string TimeCharmItemId = "adityagarg.NewLanguageProject_TimeCharm";
         private const string ConveyorItemId = "adityagarg.NewLanguageProject_Conveyor";
+        private const string TeleporterItemId = "adityagarg.NewLanguageProject_Teleporter";
+        private const string ButcherKnifeItemId = "adityagarg.NewLanguageProject_ButcherKnife";
+        private const string RawMeatItemId = "adityagarg.NewLanguageProject_RawMeat";
+        private const string CookedMeatItemId = "adityagarg.NewLanguageProject_CookedMeat";
 
         private static readonly Vector2[] AdjacentDirections =
         {
@@ -44,6 +51,7 @@ namespace NewLanguageProject
 
         private ChestLink? linkedSourceChest;
         private ChestLink? linkedTargetChest;
+        private bool isChoosingTeleportDestination;
 
         public override void Entry(IModHelper helper)
         {
@@ -53,6 +61,7 @@ namespace NewLanguageProject
             helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
             helper.Events.Input.ButtonPressed += OnButtonPressed;
             helper.Events.Content.AssetRequested += OnAssetRequested;
+            helper.Events.Player.Warped += OnWarped;
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
@@ -101,8 +110,36 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
+            if ((e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX) && isChoosingTeleportDestination)
+            {
+                TryTeleportToTile(e.Cursor.Tile);
+                this.Helper.Input.Suppress(e.Button);
+                return;
+            }
+
+            if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX)
+            {
+                if (TryOneHitTree(e.Cursor.Tile, e.Cursor.GrabTile, Game1.player.GetGrabTile()))
+                {
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+            }
+
             if (e.Button == SButton.MouseRight || e.Button == SButton.ControllerA)
             {
+                if (TryUseButcherKnife(e.Cursor.Tile, e.Cursor.GrabTile, Game1.player.GetGrabTile()))
+                {
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+
+                if (TryActivateTeleporter(e.Cursor.Tile, e.Cursor.GrabTile, Game1.player.GetGrabTile()))
+                {
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+
                 if (TryUseTimeCharm())
                 {
                     this.Helper.Input.Suppress(e.Button);
@@ -148,6 +185,68 @@ namespace NewLanguageProject
                         Texture = "Maps/springobjects",
                         SpriteIndex = 688
                     };
+
+                    data[ConveyorItemId] = new ObjectData
+                    {
+                        Name = "Conveyor",
+                        DisplayName = "Conveyor",
+                        Description = "A low belt that carries items to a machine at the end of its path.",
+                        Type = "Crafting",
+                        Category = StardewValley.Object.CraftingCategory,
+                        Price = 100,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 71
+                    };
+
+                    data[TeleporterItemId] = new ObjectData
+                    {
+                        Name = "Teleporter",
+                        DisplayName = "Teleporter",
+                        Description = "Click it, then click a tile on the current map to blink there.",
+                        Type = "Crafting",
+                        Category = StardewValley.Object.CraftingCategory,
+                        Price = 500,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 688
+                    };
+
+                    data[ButcherKnifeItemId] = new ObjectData
+                    {
+                        Name = "Butcher Knife",
+                        DisplayName = "Butcher Knife",
+                        Description = "Use on farm animals to turn them into raw meat.",
+                        Type = "Crafting",
+                        Category = StardewValley.Object.CraftingCategory,
+                        Price = 1500,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 120
+                    };
+
+                    data[RawMeatItemId] = new ObjectData
+                    {
+                        Name = "Raw Meat",
+                        DisplayName = "Raw Meat",
+                        Description = "Fresh meat from a farm animal. Can be sold or cooked.",
+                        Type = "Basic",
+                        Category = StardewValley.Object.meatCategory,
+                        Price = 75,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 684,
+                        Edibility = 5
+                    };
+
+                    data[CookedMeatItemId] = new ObjectData
+                    {
+                        Name = "Cooked Meat",
+                        DisplayName = "Cooked Meat",
+                        Description = "A simple cooked cut of meat.",
+                        Type = "Cooking",
+                        Category = StardewValley.Object.CookingCategory,
+                        Price = 160,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 214,
+                        Edibility = 35
+                    };
                 });
             }
 
@@ -179,7 +278,34 @@ namespace NewLanguageProject
                     var data = asset.AsDictionary<string, string>().Data;
 
                     data["Time Charm"] = $"{WoodId} 10/Home/{TimeCharmItemId}/false/default/";
-                    data["Conveyor"] = $"{StoneId} 20/Home/{ConveyorItemId}/true/default/";
+                    data["Conveyor"] = $"{StoneId} 20/Home/{ConveyorItemId}/false/default/";
+                    data["Teleporter"] = $"{StoneId} 25 {WoodId} 10/Home/{TeleporterItemId}/false/default/";
+                });
+            }
+
+            if (e.NameWithoutLocale.IsEquivalentTo("Data/CookingRecipes"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, string>().Data;
+                    data["Cooked Meat"] = $"{RawMeatItemId} 1/10/{CookedMeatItemId}/default/";
+                });
+            }
+
+            if (e.NameWithoutLocale.IsEquivalentTo("Data/Shops"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, ShopData>().Data;
+
+                    foreach (var pair in data)
+                    {
+                        if (pair.Key.Contains("Animal", StringComparison.OrdinalIgnoreCase)
+                            || pair.Key.Contains("Marnie", StringComparison.OrdinalIgnoreCase))
+                        {
+                            AddButcherKnifeToShop(pair.Value);
+                        }
+                    }
                 });
             }
         }
@@ -319,6 +445,8 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
+            MakePlacedConveyorsPassable();
+
             if (shouldGiveEnergyBonus)
             {
                 shouldGiveEnergyBonus = false;
@@ -344,6 +472,37 @@ namespace NewLanguageProject
                 Game1.player.Stamina *= 0.85f;
                 this.Monitor.Log($"Heat reduced stamina once. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
             }
+        }
+
+        private void OnWarped(object? sender, WarpedEventArgs e)
+        {
+            if (!Context.IsWorldReady || !e.IsLocalPlayer)
+                return;
+
+            if (e.NewLocation.Name.Contains("Mine", StringComparison.OrdinalIgnoreCase))
+                ApplyMineLuckBuff();
+        }
+
+        private void ApplyMineLuckBuff()
+        {
+            BuffEffects effects = new BuffEffects();
+            effects.LuckLevel.Value = 3;
+            effects.MiningLevel.Value = 1;
+
+            Game1.player.applyBuff(new Buff(
+                "adityagarg.NewLanguageProject_MineLuck",
+                "New Language Project",
+                "New Language Project",
+                120000,
+                null,
+                -1,
+                effects,
+                false,
+                "Mine Luck",
+                "+3 luck and +1 mining while exploring the mines."
+            ));
+
+            Game1.addHUDMessage(new HUDMessage("The mines feel lucky today.", HUDMessage.newQuest_type));
         }
 
         private void SetLinkedSourceChest()
@@ -404,6 +563,195 @@ namespace NewLanguageProject
             }
 
             Game1.addHUDMessage(new HUDMessage("Source chest is empty.", HUDMessage.error_type));
+        }
+
+        private bool TryActivateTeleporter(params Vector2[] possibleTiles)
+        {
+            GameLocation location = Game1.player.currentLocation;
+
+            foreach (Vector2 tile in possibleTiles)
+            {
+                if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && IsTeleporter(obj))
+                {
+                    isChoosingTeleportDestination = true;
+                    Game1.addHUDMessage(new HUDMessage("Teleporter ready. Left-click a destination tile on this map.", HUDMessage.newQuest_type));
+                    location.temporarySprites.Add(new TemporaryAnimatedSprite(10, tile * 64f, Color.Cyan, 3, false, 900f));
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void TryTeleportToTile(Vector2 destinationTile)
+        {
+            GameLocation location = Game1.player.currentLocation;
+            isChoosingTeleportDestination = false;
+
+            if (destinationTile.X < 0
+                || destinationTile.Y < 0
+                || destinationTile.X >= location.map.Layers[0].LayerWidth
+                || destinationTile.Y >= location.map.Layers[0].LayerHeight)
+            {
+                Game1.addHUDMessage(new HUDMessage("That teleport destination is outside the map.", HUDMessage.error_type));
+                return;
+            }
+
+            if (location.objects.ContainsKey(destinationTile) || location.terrainFeatures.ContainsKey(destinationTile))
+            {
+                Game1.addHUDMessage(new HUDMessage("That teleport destination is blocked.", HUDMessage.error_type));
+                return;
+            }
+
+            Game1.player.Position = destinationTile * 64f;
+            location.temporarySprites.Add(new TemporaryAnimatedSprite(10, destinationTile * 64f, Color.Cyan, 4, false, 900f));
+            Game1.playSound("wand");
+            Game1.addHUDMessage(new HUDMessage("Teleported.", HUDMessage.newQuest_type));
+        }
+
+        private bool TryUseButcherKnife(params Vector2[] possibleTiles)
+        {
+            if (Game1.player.CurrentItem?.ItemId != ButcherKnifeItemId)
+                return false;
+
+            FarmAnimal? animal = FindAnimalAtTiles(possibleTiles);
+
+            if (animal is null)
+            {
+                Game1.addHUDMessage(new HUDMessage("No farm animal there.", HUDMessage.error_type));
+                return true;
+            }
+
+            int meatAmount = GetMeatAmount(animal);
+            string animalName = animal.displayName;
+
+            if (!RemoveFarmAnimal(animal))
+            {
+                Game1.addHUDMessage(new HUDMessage("Could not butcher that animal.", HUDMessage.error_type));
+                return true;
+            }
+
+            Game1.player.addItemToInventoryBool(new StardewValley.Object(RawMeatItemId, meatAmount));
+            Game1.playSound("daggerswipe");
+            Game1.addHUDMessage(new HUDMessage($"{animalName} became {meatAmount} raw meat.", HUDMessage.error_type));
+            return true;
+        }
+
+        private FarmAnimal? FindAnimalAtTiles(IEnumerable<Vector2> possibleTiles)
+        {
+            HashSet<Vector2> tiles = new HashSet<Vector2>(possibleTiles);
+
+            foreach (FarmAnimal animal in Game1.getFarm().getAllFarmAnimals())
+            {
+                Rectangle box = animal.GetBoundingBox();
+
+                foreach (Vector2 tile in tiles)
+                {
+                    Point pixel = new Point((int)(tile.X * 64 + 32), (int)(tile.Y * 64 + 32));
+
+                    if (box.Contains(pixel))
+                        return animal;
+                }
+            }
+
+            return null;
+        }
+
+        private static int GetMeatAmount(FarmAnimal animal)
+        {
+            string type = animal.type.Value;
+
+            if (type.Contains("Chicken", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Duck", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Rabbit", StringComparison.OrdinalIgnoreCase))
+                return 2;
+
+            if (type.Contains("Cow", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Pig", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Ostrich", StringComparison.OrdinalIgnoreCase))
+                return 8;
+
+            return 5;
+        }
+
+        private bool RemoveFarmAnimal(FarmAnimal animal)
+        {
+            long animalId = GetNetLongValue(animal, "myID");
+            bool removed = false;
+
+            foreach (GameLocation location in Game1.locations)
+                removed |= RemoveAnimalFromObject(location, animalId);
+
+            if (!removed)
+            {
+                foreach (GameLocation location in Game1.locations)
+                {
+                    foreach (FieldInfo field in location.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                    {
+                        if (!field.Name.Contains("animals", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        object? value = field.GetValue(location);
+
+                        if (value is not null)
+                            removed |= InvokeRemoveByLong(value, animalId);
+                    }
+                }
+            }
+
+            animal.Position = new Vector2(-9999, -9999);
+            return removed || animalId != 0;
+        }
+
+        private static bool RemoveAnimalFromObject(object target, long animalId)
+        {
+            FieldInfo? field = target.GetType().GetField("animals", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            object? animals = field?.GetValue(target);
+
+            return animals is not null && InvokeRemoveByLong(animals, animalId);
+        }
+
+        private static bool InvokeRemoveByLong(object target, long key)
+        {
+            MethodInfo? remove = target.GetType().GetMethod("Remove", new[] { typeof(long) });
+
+            if (remove is null)
+                return false;
+
+            return remove.Invoke(target, new object[] { key }) is bool result && result;
+        }
+
+        private bool TryOneHitTree(params Vector2[] possibleTiles)
+        {
+            if (Game1.player.CurrentTool is null || !Game1.player.CurrentTool.Name.Contains("Axe", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            GameLocation location = Game1.player.currentLocation;
+
+            foreach (Vector2 tile in possibleTiles)
+            {
+                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree)
+                    continue;
+
+                MethodInfo? performToolAction = feature.GetType().GetMethod(
+                    "performToolAction",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    new[] { typeof(Tool), typeof(int), typeof(Vector2), typeof(GameLocation) },
+                    null
+                );
+
+                if (performToolAction is null)
+                    return false;
+
+                for (int i = 0; i < 8; i++)
+                    performToolAction.Invoke(feature, new object?[] { Game1.player.CurrentTool, 0, tile, location });
+
+                Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryPlaceHeldItemOnConveyor(params Vector2[] possibleTiles)
@@ -509,8 +857,31 @@ namespace NewLanguageProject
         private static bool IsConveyor(StardewValley.Object obj)
         {
             return obj.ItemId == ConveyorItemId
+                || obj.QualifiedItemId == $"(O){ConveyorItemId}"
                 || obj.QualifiedItemId == $"(BC){ConveyorItemId}"
                 || obj.Name == "Conveyor";
+        }
+
+        private static bool IsTeleporter(StardewValley.Object obj)
+        {
+            return obj.ItemId == TeleporterItemId
+                || obj.QualifiedItemId == $"(O){TeleporterItemId}"
+                || obj.Name == "Teleporter";
+        }
+
+        private void MakePlacedConveyorsPassable()
+        {
+            foreach (GameLocation location in Game1.locations)
+            {
+                foreach (var pair in location.objects.Pairs)
+                {
+                    if (!IsConveyor(pair.Value))
+                        continue;
+
+                    SetNetFieldValue(pair.Value, "isPassable", true);
+                    pair.Value.boundingBox.Value = Rectangle.Empty;
+                }
+            }
         }
 
         private void DrawConveyorPath(GameLocation location, IEnumerable<Vector2> tiles, Color color)
@@ -519,6 +890,23 @@ namespace NewLanguageProject
             {
                 location.temporarySprites.Add(new TemporaryAnimatedSprite(10, tile * 64f, color, 1, false, 900f));
             }
+        }
+
+        private void AddButcherKnifeToShop(ShopData shop)
+        {
+            foreach (ShopItemData item in shop.Items)
+            {
+                if (item.ItemId == $"(O){ButcherKnifeItemId}" || item.ItemId == ButcherKnifeItemId)
+                    return;
+            }
+
+            shop.Items.Add(new ShopItemData
+            {
+                Id = "adityagarg.NewLanguageProject_ButcherKnife",
+                ItemId = $"(O){ButcherKnifeItemId}",
+                Price = 1500,
+                AvailableStock = 1
+            });
         }
 
         private void AutoPetAnimalsAndPets()
@@ -558,6 +946,24 @@ namespace NewLanguageProject
         }
 
         private static void SetNetValue(object target, string fieldName, int value)
+        {
+            SetNetFieldValue(target, fieldName, value);
+        }
+
+        private static long GetNetLongValue(object target, string fieldName)
+        {
+            FieldInfo? field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+            if (field?.GetValue(target) is not object netField)
+                return 0;
+
+            PropertyInfo? valueProperty = netField.GetType().GetProperty("Value");
+            object? value = valueProperty?.GetValue(netField);
+
+            return value is long longValue ? longValue : 0;
+        }
+
+        private static void SetNetFieldValue(object target, string fieldName, object value)
         {
             FieldInfo? field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
