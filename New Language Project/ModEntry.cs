@@ -828,8 +828,10 @@ namespace NewLanguageProject
 
             foreach (Vector2 tile in possibleTiles)
             {
-                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree)
+                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree tree)
                     continue;
+
+                tree.health.Value = 0; // Forced 0 health for instant breakage
 
                 MethodInfo? performToolAction = feature.GetType().GetMethod(
                     "performToolAction",
@@ -839,14 +841,12 @@ namespace NewLanguageProject
                     null
                 );
 
-                if (performToolAction is null)
-                    return false;
-
-                for (int i = 0; i < 8; i++)
+                if (performToolAction is not null)
+                {
                     performToolAction.Invoke(feature, new object?[] { Game1.player.CurrentTool, 0, tile, location });
-
-                Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
-                return true;
+                    Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
+                    return true;
+                }
             }
 
             return false;
