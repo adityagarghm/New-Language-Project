@@ -56,6 +56,7 @@ namespace NewLanguageProject
         public override void Entry(IModHelper helper)
         {
             helper.Events.GameLoop.DayStarted += OnDayStarted;
+            helper.Events.GameLoop.DayEnding += OnDayEnding; // Fix for compounding energy
             helper.Events.Player.InventoryChanged += OnInventoryChanged;
             helper.Events.GameLoop.TimeChanged += OnTimeChanged;
             helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
@@ -66,7 +67,7 @@ namespace NewLanguageProject
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
-            RemoveTemporaryEnergyBonus();
+            RemoveTemporaryEnergyBonus(); // Failsafe cleanup
 
             shouldDropWindyItems = false;
             shouldGiveEnergyBonus = false;
@@ -105,16 +106,23 @@ namespace NewLanguageProject
             this.Monitor.Log("DayStarted event is running.", LogLevel.Info);
         }
 
+        private void OnDayEnding(object? sender, DayEndingEventArgs e)
+        {
+            // Remove the energy bonus BEFORE the game saves overnight to prevent compounding
+            RemoveTemporaryEnergyBonus();
+        }
+
         private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
         {
             if (!Context.IsWorldReady)
                 return;
 
-            // Handle Global Map Teleport Clicks
-            if (isChoosingTeleportDestination && Game1.activeClickableMenu is StardewValley.Menus.MapPage mapPage)
+            // Handle Global Map Teleport Clicks (Fixed cursor issue by using GameMenu)
+            if (isChoosingTeleportDestination && Game1.activeClickableMenu is StardewValley.Menus.GameMenu gameMenu && gameMenu.currentTab == 3) // 3 is the Map tab
             {
-                if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX)
+                if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerA)
                 {
+                    var mapPage = gameMenu.pages[3];
                     string hoverText = this.Helper.Reflection.GetField<string>(mapPage, "hoverText").GetValue();
 
                     if (!string.IsNullOrWhiteSpace(hoverText))
@@ -204,7 +212,7 @@ namespace NewLanguageProject
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 100,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 797 // Changed from Warp Totem to Pearl sprite
+                        SpriteIndex = 797
                     };
 
                     data[ConveyorItemId] = new ObjectData
@@ -228,7 +236,7 @@ namespace NewLanguageProject
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 500,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 787 // Changed from Warp Totem to Battery Pack sprite
+                        SpriteIndex = 787
                     };
 
                     data[ButcherKnifeItemId] = new ObjectData
@@ -359,13 +367,11 @@ namespace NewLanguageProject
             if (isHotDay && Game1.player.currentLocation.IsOutdoors)
                 Game1.player.Stamina = Math.Max(0, Game1.player.Stamina - 1f);
 
-            // Fixed Health Increase logic
             if (isRainyOvergrowthDay && Game1.player.currentLocation.IsOutdoors)
             {
                 Game1.player.health = Math.Min(Game1.player.maxHealth, Game1.player.health + 20);
                 Game1.addHUDMessage(new HUDMessage("Rainy overgrowth heals you.", HUDMessage.newQuest_type));
             }
-
         }
 
         private void HandleTimeSlow(TimeChangedEventArgs e)
@@ -470,8 +476,8 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
-            // Handle canceling global teleport if map menu was closed manually
-            if (isChoosingTeleportDestination && Game1.activeClickableMenu == null)
+            // Stop teleport process if the user closes the menu manually
+            if (isChoosingTeleportDestination && (Game1.activeClickableMenu == null || (Game1.activeClickableMenu is StardewValley.Menus.GameMenu gm && gm.currentTab != 3)))
             {
                 isChoosingTeleportDestination = false;
             }
@@ -524,7 +530,7 @@ namespace NewLanguageProject
                 "adityagarg.NewLanguageProject_MineLuck",
                 "New Language Project",
                 "New Language Project",
-                -2, // Fixed: -2 makes it last all day natively
+                -2,
                 null,
                 -1,
                 effects,
@@ -596,7 +602,6 @@ namespace NewLanguageProject
             Game1.addHUDMessage(new HUDMessage("Source chest is empty.", HUDMessage.error_type));
         }
 
-        // --- NEW GLOBAL MAP TELEPORTER LOGIC ---
         private bool TryActivateTeleporter(params Vector2[] possibleTiles)
         {
             GameLocation location = Game1.player.currentLocation;
@@ -606,11 +611,8 @@ namespace NewLanguageProject
                 if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && IsTeleporter(obj))
                 {
                     isChoosingTeleportDestination = true;
-                    // Safely open the global Map Menu
-                    Game1.activeClickableMenu = new StardewValley.Menus.MapPage(
-                        Game1.uiViewport.Width / 2 - 800 / 2, 
-                        Game1.uiViewport.Height / 2 - 600 / 2, 
-                        800, 600);
+                    // Opening the Map tab of the GameMenu ensures the mouse cursor is fully supported
+                    Game1.activeClickableMenu = new StardewValley.Menus.GameMenu(3);
                         
                     Game1.addHUDMessage(new HUDMessage("Teleporter ready. Click a region on the map.", HUDMessage.newQuest_type));
                     return true;
@@ -750,7 +752,6 @@ namespace NewLanguageProject
             return remove.Invoke(target, new object[] { key }) is bool result && result;
         }
 
-        // --- FIXED ONE-HIT TREE LOGIC ---
         private bool TryOneHitTree(params Vector2[] possibleTiles)
         {
             if (Game1.player.CurrentTool is null || !Game1.player.CurrentTool.Name.Contains("Axe", StringComparison.OrdinalIgnoreCase))
@@ -763,7 +764,6 @@ namespace NewLanguageProject
                 if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree tree)
                     continue;
 
-                // Force tree health to 0 so the next tool action instantly destroys it.
                 tree.health.Value = 0;
 
                 MethodInfo? performToolAction = feature.GetType().GetMethod(
