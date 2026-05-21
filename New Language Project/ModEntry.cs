@@ -26,6 +26,8 @@ namespace NewLanguageProject
         private const string ButcherKnifeItemId = "adityagarg.NewLanguageProject_ButcherKnife";
         private const string RawMeatItemId = "adityagarg.NewLanguageProject_RawMeat";
         private const string CookedMeatItemId = "adityagarg.NewLanguageProject_CookedMeat";
+        private const string SteakItemId = "adityagarg.NewLanguageProject_Steak";
+        private const string BaconItemId = "adityagarg.NewLanguageProject_Bacon";
 
         private static readonly Vector2[] AdjacentDirections =
         {
@@ -49,6 +51,7 @@ namespace NewLanguageProject
         private int slowedTimeAdvancesRemaining;
         private bool shouldBlockNextTimeAdvance;
         private bool isChangingTime;
+        private bool wasEatingTimeCharm;
 
         private ChestLink? linkedSourceChest;
         private ChestLink? linkedTargetChest;
@@ -59,6 +62,7 @@ namespace NewLanguageProject
             helper.Events.GameLoop.DayStarted += OnDayStarted;
             helper.Events.Player.InventoryChanged += OnInventoryChanged;
             helper.Events.GameLoop.TimeChanged += OnTimeChanged;
+            helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
             helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
             helper.Events.Input.ButtonPressed += OnButtonPressed;
             helper.Events.Content.AssetRequested += OnAssetRequested;
@@ -68,7 +72,6 @@ namespace NewLanguageProject
 
         private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
         {
-            // Keeps the cursor fully visible whenever teleporting or using the map UI
             if (isChoosingTeleportDestination)
             {
                 Game1.mouseCursorTransparency = 1f;
@@ -84,6 +87,7 @@ namespace NewLanguageProject
             shouldApplyHeatPenalty = false;
             slowedTimeAdvancesRemaining = 0;
             shouldBlockNextTimeAdvance = false;
+            wasEatingTimeCharm = false;
 
             Game1.player.health = Math.Max(Game1.player.health, 100);
 
@@ -121,7 +125,6 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
-            // Dynamically scan for MapPage without static internal references
             object? mapPageInstance = null;
             if (Game1.activeClickableMenu is GameMenu gm)
             {
@@ -139,7 +142,6 @@ namespace NewLanguageProject
                 mapPageInstance = Game1.activeClickableMenu;
             }
 
-            // Reset teleport tracker if player closes the menu manually
             if (isChoosingTeleportDestination)
             {
                 Game1.mouseCursorTransparency = 1f;
@@ -147,7 +149,6 @@ namespace NewLanguageProject
                     isChoosingTeleportDestination = false;
             }
 
-            // Intercept mapscreen inputs for instant world teleportation
             if (isChoosingTeleportDestination && mapPageInstance != null && (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX))
             {
                 FieldInfo? hoverTextField = mapPageInstance.GetType().GetField("hoverText", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -169,7 +170,6 @@ namespace NewLanguageProject
                     else if (text.Contains("town") || text.Contains("pelican") || text.Contains("pierre") || text.Contains("saloon") || text.Contains("blacksmith") || text.Contains("museum") || text.Contains("joja") || text.Contains("clinic") || text.Contains("lewis")) { targetLocation = "Town"; targetTile = new Vector2(40, 40); }
                 }
 
-                // Generous layout fallback calculations based on raw field reflection to guarantee zero compile errors
                 if (string.IsNullOrEmpty(targetLocation))
                 {
                     Type menuType = mapPageInstance.GetType();
@@ -232,12 +232,6 @@ namespace NewLanguageProject
                     return;
                 }
 
-                if (TryUseTimeCharm())
-                {
-                    this.Helper.Input.Suppress(e.Button);
-                    return;
-                }
-
                 if (TryPlaceHeldItemOnConveyor(e.Cursor.Tile, e.Cursor.GrabTile, Game1.player.GetGrabTile()))
                 {
                     this.Helper.Input.Suppress(e.Button);
@@ -270,12 +264,13 @@ namespace NewLanguageProject
                     {
                         Name = "Time Charm",
                         DisplayName = "Time Charm",
-                        Description = "Slows time for one in-game hour.",
-                        Type = "Crafting",
-                        Category = StardewValley.Object.CraftingCategory,
+                        Description = "Eat it to slow time for one in-game hour.",
+                        Type = "Basic",
+                        Category = 0,
                         Price = 100,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 688
+                        SpriteIndex = 797,
+                        Edibility = 4
                     };
 
                     data[ConveyorItemId] = new ObjectData
@@ -299,7 +294,7 @@ namespace NewLanguageProject
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 500,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 688
+                        SpriteIndex = 787
                     };
 
                     data[ButcherKnifeItemId] = new ObjectData
@@ -318,10 +313,10 @@ namespace NewLanguageProject
                     {
                         Name = "Raw Meat",
                         DisplayName = "Raw Meat",
-                        Description = "Fresh meat from a farm animal. Can be sold or cooked.",
+                        Description = "Fresh meat from a farm animal. Highly profitable.",
                         Type = "Basic",
                         Category = StardewValley.Object.meatCategory,
-                        Price = 75,
+                        Price = 300,
                         Texture = "Maps/springobjects",
                         SpriteIndex = 684,
                         Edibility = 5
@@ -334,10 +329,36 @@ namespace NewLanguageProject
                         Description = "A simple cooked cut of meat.",
                         Type = "Cooking",
                         Category = StardewValley.Object.CookingCategory,
-                        Price = 160,
+                        Price = 600,
                         Texture = "Maps/springobjects",
                         SpriteIndex = 214,
                         Edibility = 35
+                    };
+
+                    data[SteakItemId] = new ObjectData
+                    {
+                        Name = "Steak",
+                        DisplayName = "Steak",
+                        Description = "A premium juicy cut of beef from a cow. Exceptionally valuable.",
+                        Type = "Basic",
+                        Category = StardewValley.Object.meatCategory,
+                        Price = 1200,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 214,
+                        Edibility = 40
+                    };
+
+                    data[BaconItemId] = new ObjectData
+                    {
+                        Name = "Bacon",
+                        DisplayName = "Bacon",
+                        Description = "Crispy, delicious strips of premium pork from a pig. Incredibly valuable.",
+                        Type = "Basic",
+                        Category = StardewValley.Object.meatCategory,
+                        Price = 1500,
+                        Texture = "Maps/springobjects",
+                        SpriteIndex = 684,
+                        Edibility = 30
                     };
                 });
             }
@@ -402,22 +423,23 @@ namespace NewLanguageProject
             }
         }
 
-        private bool TryUseTimeCharm()
+        private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
-            if (Game1.player.CurrentItem?.ItemId != TimeCharmItemId)
-                return false;
+            if (!Context.IsWorldReady)
+                return;
 
-            if (slowedTimeAdvancesRemaining > 0)
+            if (Game1.player.itemToEat != null && Game1.player.itemToEat.ItemId == TimeCharmItemId)
             {
-                Game1.addHUDMessage(new HUDMessage("Time is already slowed.", HUDMessage.error_type));
-                return true;
+                wasEatingTimeCharm = true;
             }
+            else if (wasEatingTimeCharm)
+            {
+                wasEatingTimeCharm = false;
 
-            Game1.player.reduceActiveItemByOne();
-            slowedTimeAdvancesRemaining = 6;
-            shouldBlockNextTimeAdvance = true;
-            Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
-            return true;
+                slowedTimeAdvancesRemaining = 6;
+                shouldBlockNextTimeAdvance = true;
+                Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
+            }
         }
 
         private void OnTimeChanged(object? sender, TimeChangedEventArgs e)
@@ -548,7 +570,6 @@ namespace NewLanguageProject
                 Game1.player.modData[EnergyBonusKey] = temporaryEnergyBonus.ToString();
 
                 Game1.addHUDMessage(new HUDMessage($"You woke up energized. +{pendingEnergyBonus} max energy today.", HUDMessage.newQuest_type));
-                this.Monitor.Log($"Gave player +{pendingEnergyBonus} temporary max energy. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
             }
 
             if (shouldDropWindyItems)
@@ -561,7 +582,6 @@ namespace NewLanguageProject
             {
                 shouldApplyHeatPenalty = false;
                 Game1.player.Stamina *= 0.85f;
-                this.Monitor.Log($"Heat reduced stamina once. Current stamina: {Game1.player.Stamina}", LogLevel.Info);
             }
         }
 
@@ -696,7 +716,7 @@ namespace NewLanguageProject
                 return true;
             }
 
-            int meatAmount = GetMeatAmount(animal);
+            var product = GetButcherProducts(animal);
             string animalName = animal.displayName;
 
             if (!RemoveFarmAnimal(animal))
@@ -705,10 +725,31 @@ namespace NewLanguageProject
                 return true;
             }
 
-            Game1.player.addItemToInventoryBool(new StardewValley.Object(RawMeatItemId, meatAmount));
+            string productName = "Meat";
+            if (product.ItemId == SteakItemId) productName = "Steak";
+            else if (product.ItemId == BaconItemId) productName = "Bacon";
+            else if (product.ItemId == RawMeatItemId) productName = "Raw Meat";
+
+            Game1.player.addItemToInventoryBool(new StardewValley.Object(product.ItemId, product.Amount));
             Game1.playSound("daggerswipe");
-            Game1.addHUDMessage(new HUDMessage($"{animalName} became {meatAmount} raw meat.", HUDMessage.error_type));
+            Game1.addHUDMessage(new HUDMessage($"{animalName} became {product.Amount} {productName}.", HUDMessage.newQuest_type));
             return true;
+        }
+
+        private (string ItemId, int Amount) GetButcherProducts(FarmAnimal animal)
+        {
+            string type = animal.type.Value.ToLowerInvariant();
+
+            if (type.Contains("cow")) return (SteakItemId, 25);
+            if (type.Contains("pig")) return (BaconItemId, 15);
+            if (type.Contains("chicken")) return (RawMeatItemId, 2);
+            if (type.Contains("duck")) return (RawMeatItemId, 4);
+            if (type.Contains("rabbit")) return (RawMeatItemId, 3);
+            if (type.Contains("goat")) return (RawMeatItemId, 12);
+            if (type.Contains("sheep")) return (RawMeatItemId, 10);
+            if (type.Contains("ostrich")) return (RawMeatItemId, 20);
+
+            return (RawMeatItemId, 5);
         }
 
         private FarmAnimal? FindAnimalAtTiles(IEnumerable<Vector2> possibleTiles)
@@ -729,23 +770,6 @@ namespace NewLanguageProject
             }
 
             return null;
-        }
-
-        private static int GetMeatAmount(FarmAnimal animal)
-        {
-            string type = animal.type.Value;
-
-            if (type.Contains("Chicken", StringComparison.OrdinalIgnoreCase)
-                || type.Contains("Duck", StringComparison.OrdinalIgnoreCase)
-                || type.Contains("Rabbit", StringComparison.OrdinalIgnoreCase))
-                return 2;
-
-            if (type.Contains("Cow", StringComparison.OrdinalIgnoreCase)
-                || type.Contains("Pig", StringComparison.OrdinalIgnoreCase)
-                || type.Contains("Ostrich", StringComparison.OrdinalIgnoreCase))
-                return 8;
-
-            return 5;
         }
 
         private bool RemoveFarmAnimal(FarmAnimal animal)
