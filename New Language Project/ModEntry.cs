@@ -9,6 +9,7 @@ using StardewValley.Buffs;
 using StardewValley.GameData.BigCraftables;
 using StardewValley.GameData.Objects;
 using StardewValley.GameData.Shops;
+using StardewValley.Menus;
 using StardewValley.Objects;
 using StardewValley.TerrainFeatures;
 
@@ -25,8 +26,6 @@ namespace NewLanguageProject
         private const string ButcherKnifeItemId = "adityagarg.NewLanguageProject_ButcherKnife";
         private const string RawMeatItemId = "adityagarg.NewLanguageProject_RawMeat";
         private const string CookedMeatItemId = "adityagarg.NewLanguageProject_CookedMeat";
-        private const string SteakItemId = "adityagarg.NewLanguageProject_Steak";
-        private const string BaconItemId = "adityagarg.NewLanguageProject_Bacon";
 
         private static readonly Vector2[] AdjacentDirections =
         {
@@ -64,6 +63,16 @@ namespace NewLanguageProject
             helper.Events.Input.ButtonPressed += OnButtonPressed;
             helper.Events.Content.AssetRequested += OnAssetRequested;
             helper.Events.Player.Warped += OnWarped;
+            helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
+        }
+
+        private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
+        {
+            // Keeps the cursor fully visible whenever teleporting or using the map UI
+            if (isChoosingTeleportDestination)
+            {
+                Game1.mouseCursorTransparency = 1f;
+            }
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
@@ -112,30 +121,89 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
-            // Handle Global Map Teleport Selection Menu
-            if (isChoosingTeleportDestination && Game1.activeClickableMenu is StardewValley.Menus.GameMenu gameMenu && gameMenu.currentTab == 3)
+            // Dynamically scan for MapPage without static internal references
+            object? mapPageInstance = null;
+            if (Game1.activeClickableMenu is GameMenu gm)
             {
-                if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerA)
+                foreach (var page in gm.pages)
                 {
-                    var mapPage = gameMenu.pages[3];
-                    string hoverText = this.Helper.Reflection.GetField<string>(mapPage, "hoverText").GetValue();
-
-                    if (!string.IsNullOrWhiteSpace(hoverText))
+                    if (page?.GetType().Name == "MapPage")
                     {
-                        var warpDest = GetWarpDestination(hoverText);
-                        if (warpDest.HasValue)
-                        {
-                            Game1.warpFarmer(warpDest.Value.LocationName, warpDest.Value.X, warpDest.Value.Y, false);
-                            Game1.exitActiveMenu();
-                            isChoosingTeleportDestination = false;
-                            Game1.playSound("wand");
-                            Game1.addHUDMessage(new HUDMessage($"Teleported to {hoverText}.", HUDMessage.newQuest_type));
-                        }
-                        else
-                        {
-                            Game1.addHUDMessage(new HUDMessage($"Cannot teleport directly to {hoverText}. Try another region.", HUDMessage.error_type));
-                        }
+                        mapPageInstance = page;
+                        break;
                     }
+                }
+            }
+            else if (Game1.activeClickableMenu?.GetType().Name == "MapPage")
+            {
+                mapPageInstance = Game1.activeClickableMenu;
+            }
+
+            // Reset teleport tracker if player closes the menu manually
+            if (isChoosingTeleportDestination)
+            {
+                Game1.mouseCursorTransparency = 1f;
+                if (mapPageInstance == null)
+                    isChoosingTeleportDestination = false;
+            }
+
+            // Intercept mapscreen inputs for instant world teleportation
+            if (isChoosingTeleportDestination && mapPageInstance != null && (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX))
+            {
+                FieldInfo? hoverTextField = mapPageInstance.GetType().GetField("hoverText", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                string? hoverText = hoverTextField?.GetValue(mapPageInstance) as string;
+
+                string targetLocation = "";
+                Vector2 targetTile = new Vector2(20, 20);
+
+                if (!string.IsNullOrEmpty(hoverText))
+                {
+                    string text = hoverText.ToLower();
+                    if (text.Contains("farm")) { targetLocation = "Farm"; targetTile = new Vector2(64, 30); }
+                    else if (text.Contains("secret woods") || text.Contains("woods")) { targetLocation = "Woods"; targetTile = new Vector2(20, 20); }
+                    else if (text.Contains("marnie") || text.Contains("leah") || text.Contains("wizard") || text.Contains("forest") || text.Contains("cindersap") || text.Contains("hat")) { targetLocation = "Forest"; targetTile = new Vector2(80, 20); }
+                    else if (text.Contains("desert") || text.Contains("oasis") || text.Contains("sandy")) { targetLocation = "Desert"; targetTile = new Vector2(25, 35); }
+                    else if (text.Contains("railroad") || text.Contains("spa") || text.Contains("bath") || text.Contains("witch")) { targetLocation = "Railroad"; targetTile = new Vector2(20, 45); }
+                    else if (text.Contains("mountain") || text.Contains("robin") || text.Contains("carpenter") || text.Contains("mine") || text.Contains("guild") || text.Contains("linus") || text.Contains("quarry")) { targetLocation = "Mountain"; targetTile = new Vector2(50, 20); }
+                    else if (text.Contains("beach") || text.Contains("willy")) { targetLocation = "Beach"; targetTile = new Vector2(40, 10); }
+                    else if (text.Contains("town") || text.Contains("pelican") || text.Contains("pierre") || text.Contains("saloon") || text.Contains("blacksmith") || text.Contains("museum") || text.Contains("joja") || text.Contains("clinic") || text.Contains("lewis")) { targetLocation = "Town"; targetTile = new Vector2(40, 40); }
+                }
+
+                // Generous layout fallback calculations based on raw field reflection to guarantee zero compile errors
+                if (string.IsNullOrEmpty(targetLocation))
+                {
+                    Type menuType = mapPageInstance.GetType();
+                    FieldInfo? xField = menuType.GetField("xPositionOnInterface", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? yField = menuType.GetField("yPositionOnInterface", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? wField = menuType.GetField("width", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? hField = menuType.GetField("height", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                    int xPos = (int)(xField?.GetValue(mapPageInstance) ?? 0);
+                    int yPos = (int)(yField?.GetValue(mapPageInstance) ?? 0);
+                    int width = (int)(wField?.GetValue(mapPageInstance) ?? Game1.viewport.Width);
+                    int height = (int)(hField?.GetValue(mapPageInstance) ?? Game1.viewport.Height);
+
+                    int mapX = Game1.getMouseX() - xPos;
+                    int mapY = Game1.getMouseY() - yPos;
+                    float pctX = (float)mapX / width;
+                    float pctY = (float)mapY / height;
+
+                    if (pctX < 0.25f && pctY < 0.4f) { targetLocation = "Desert"; targetTile = new Vector2(25, 35); }
+                    else if (pctX < 0.35f && pctY >= 0.4f && pctY < 0.65f) { targetLocation = "Farm"; targetTile = new Vector2(64, 30); }
+                    else if (pctX < 0.35f && pctY >= 0.65f) { targetLocation = "Forest"; targetTile = new Vector2(80, 20); }
+                    else if (pctY < 0.3f) { if (pctX > 0.6f) { targetLocation = "Mountain"; targetTile = new Vector2(50, 20); } else { targetLocation = "Railroad"; targetTile = new Vector2(20, 45); } }
+                    else if (pctY > 0.75f) { targetLocation = "Beach"; targetTile = new Vector2(40, 10); }
+                    else if (pctX > 0.7f && pctY < 0.5f) { targetLocation = "Mountain"; targetTile = new Vector2(90, 35); }
+                    else { targetLocation = "Town"; targetTile = new Vector2(40, 40); }
+                }
+
+                if (!string.IsNullOrEmpty(targetLocation))
+                {
+                    isChoosingTeleportDestination = false;
+                    Game1.exitActiveMenu();
+                    Game1.warpFarmer(targetLocation, (int)targetTile.X, (int)targetTile.Y, 2);
+                    Game1.playSound("wand");
+                    Game1.addHUDMessage(new HUDMessage($"Teleported to {targetLocation}!", HUDMessage.newQuest_type));
                     this.Helper.Input.Suppress(e.Button);
                     return;
                 }
@@ -203,11 +271,11 @@ namespace NewLanguageProject
                         Name = "Time Charm",
                         DisplayName = "Time Charm",
                         Description = "Slows time for one in-game hour.",
-                        Type = "Basic",
-                        Category = 0, // Using 0 fixes compilation errors for standard items
+                        Type = "Crafting",
+                        Category = StardewValley.Object.CraftingCategory,
                         Price = 100,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 797 // Custom unique Pearl Orb icon
+                        SpriteIndex = 688
                     };
 
                     data[ConveyorItemId] = new ObjectData
@@ -226,12 +294,12 @@ namespace NewLanguageProject
                     {
                         Name = "Teleporter",
                         DisplayName = "Teleporter",
-                        Description = "Click it to open the world map and blink instantly to any region.",
+                        Description = "Opens the map menu. Click anywhere on the map to instantly teleport there.",
                         Type = "Crafting",
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 500,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 787 // Custom unique Battery Pack icon
+                        SpriteIndex = 688
                     };
 
                     data[ButcherKnifeItemId] = new ObjectData
@@ -250,10 +318,10 @@ namespace NewLanguageProject
                     {
                         Name = "Raw Meat",
                         DisplayName = "Raw Meat",
-                        Description = "Fresh meat from a farm animal. Highly profitable.",
+                        Description = "Fresh meat from a farm animal. Can be sold or cooked.",
                         Type = "Basic",
                         Category = StardewValley.Object.meatCategory,
-                        Price = 300, // Significantly buffed profit margins
+                        Price = 75,
                         Texture = "Maps/springobjects",
                         SpriteIndex = 684,
                         Edibility = 5
@@ -266,36 +334,10 @@ namespace NewLanguageProject
                         Description = "A simple cooked cut of meat.",
                         Type = "Cooking",
                         Category = StardewValley.Object.CookingCategory,
-                        Price = 600, // Significantly buffed profit margins
+                        Price = 160,
                         Texture = "Maps/springobjects",
                         SpriteIndex = 214,
                         Edibility = 35
-                    };
-
-                    data[SteakItemId] = new ObjectData
-                    {
-                        Name = "Steak",
-                        DisplayName = "Steak",
-                        Description = "A premium juicy cut of beef from a cow. Exceptionally valuable.",
-                        Type = "Basic",
-                        Category = StardewValley.Object.meatCategory,
-                        Price = 1200,
-                        Texture = "Maps/springobjects",
-                        SpriteIndex = 214,
-                        Edibility = 40
-                    };
-
-                    data[BaconItemId] = new ObjectData
-                    {
-                        Name = "Bacon",
-                        DisplayName = "Bacon",
-                        Description = "Crispy, delicious strips of premium pork from a pig. Incredibly valuable.",
-                        Type = "Basic",
-                        Category = StardewValley.Object.meatCategory,
-                        Price = 1500,
-                        Texture = "Maps/springobjects",
-                        SpriteIndex = 684,
-                        Edibility = 30
                     };
                 });
             }
@@ -494,11 +536,6 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
-            if (isChoosingTeleportDestination && (Game1.activeClickableMenu == null || (Game1.activeClickableMenu is StardewValley.Menus.GameMenu gm && gm.currentTab != 3)))
-            {
-                isChoosingTeleportDestination = false;
-            }
-
             MakePlacedConveyorsPassable();
 
             if (shouldGiveEnergyBonus)
@@ -621,38 +658,29 @@ namespace NewLanguageProject
 
         private bool TryActivateTeleporter(params Vector2[] possibleTiles)
         {
-            GameLocation location = Game1.player.currentLocation;
+            bool isHoldingTeleporter = Game1.player.CurrentItem?.ItemId == TeleporterItemId || Game1.player.CurrentItem?.Name == "Teleporter";
+            bool isInteractingWithPlaced = false;
 
+            GameLocation location = Game1.player.currentLocation;
             foreach (Vector2 tile in possibleTiles)
             {
                 if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && IsTeleporter(obj))
                 {
-                    isChoosingTeleportDestination = true;
-                    Game1.activeClickableMenu = new StardewValley.Menus.GameMenu(3); // Directly open Map Menu tab
-                    Game1.addHUDMessage(new HUDMessage("Teleporter ready. Click a destination on the world map.", HUDMessage.newQuest_type));
-                    return true;
+                    isInteractingWithPlaced = true;
+                    break;
                 }
             }
 
-            return false;
-        }
-
-        private (string LocationName, int X, int Y)? GetWarpDestination(string hoverText)
-        {
-            return hoverText.ToLowerInvariant() switch
+            if (isHoldingTeleporter || isInteractingWithPlaced)
             {
-                var text when text.Contains("farm") => ("Farm", 64, 15),
-                var text when text.Contains("town") => ("Town", 35, 35),
-                var text when text.Contains("beach") => ("Beach", 20, 4),
-                var text when text.Contains("forest") => ("Forest", 68, 16),
-                var text when text.Contains("mountain") => ("Mountain", 15, 35),
-                var text when text.Contains("desert") => ("Desert", 15, 40),
-                var text when text.Contains("woods") => ("Woods", 27, 15),
-                var text when text.Contains("quarry") => ("Mountain", 105, 12),
-                var text when text.Contains("clinic") => ("Town", 35, 35),
-                var text when text.Contains("shop") => ("Town", 35, 35),
-                _ => null
-            };
+                isChoosingTeleportDestination = true;
+                Game1.activeClickableMenu = new GameMenu(GameMenu.mapTab);
+                Game1.mouseCursorTransparency = 1f;
+                Game1.addHUDMessage(new HUDMessage("Click anywhere on the map to teleport!", HUDMessage.newQuest_type));
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryUseButcherKnife(params Vector2[] possibleTiles)
@@ -668,7 +696,7 @@ namespace NewLanguageProject
                 return true;
             }
 
-            var product = GetButcherProducts(animal);
+            int meatAmount = GetMeatAmount(animal);
             string animalName = animal.displayName;
 
             if (!RemoveFarmAnimal(animal))
@@ -677,39 +705,10 @@ namespace NewLanguageProject
                 return true;
             }
 
-            string productName = "Meat";
-            if (product.ItemId == SteakItemId) productName = "Steak";
-            else if (product.ItemId == BaconItemId) productName = "Bacon";
-            else if (product.ItemId == RawMeatItemId) productName = "Raw Meat";
-
-            Game1.player.addItemToInventoryBool(new StardewValley.Object(product.ItemId, product.Amount));
+            Game1.player.addItemToInventoryBool(new StardewValley.Object(RawMeatItemId, meatAmount));
             Game1.playSound("daggerswipe");
-            Game1.addHUDMessage(new HUDMessage($"{animalName} became {product.Amount} {productName}.", HUDMessage.newQuest_type));
+            Game1.addHUDMessage(new HUDMessage($"{animalName} became {meatAmount} raw meat.", HUDMessage.error_type));
             return true;
-        }
-
-        private (string ItemId, int Amount) GetButcherProducts(FarmAnimal animal)
-        {
-            string type = animal.type.Value.ToLowerInvariant();
-
-            if (type.Contains("cow"))
-                return (SteakItemId, 25);
-            if (type.Contains("pig"))
-                return (BaconItemId, 15);
-            if (type.Contains("chicken"))
-                return (RawMeatItemId, 2);
-            if (type.Contains("duck"))
-                return (RawMeatItemId, 4);
-            if (type.Contains("rabbit"))
-                return (RawMeatItemId, 3);
-            if (type.Contains("goat"))
-                return (RawMeatItemId, 12);
-            if (type.Contains("sheep"))
-                return (RawMeatItemId, 10);
-            if (type.Contains("ostrich"))
-                return (RawMeatItemId, 20);
-
-            return (RawMeatItemId, 5);
         }
 
         private FarmAnimal? FindAnimalAtTiles(IEnumerable<Vector2> possibleTiles)
@@ -730,6 +729,23 @@ namespace NewLanguageProject
             }
 
             return null;
+        }
+
+        private static int GetMeatAmount(FarmAnimal animal)
+        {
+            string type = animal.type.Value;
+
+            if (type.Contains("Chicken", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Duck", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Rabbit", StringComparison.OrdinalIgnoreCase))
+                return 2;
+
+            if (type.Contains("Cow", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Pig", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("Ostrich", StringComparison.OrdinalIgnoreCase))
+                return 8;
+
+            return 5;
         }
 
         private bool RemoveFarmAnimal(FarmAnimal animal)
