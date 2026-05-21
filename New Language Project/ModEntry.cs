@@ -48,6 +48,7 @@ namespace NewLanguageProject
         private int slowedTimeAdvancesRemaining;
         private bool shouldBlockNextTimeAdvance;
         private bool isChangingTime;
+        private bool wasEatingTimeCharm;
 
         private ChestLink? linkedSourceChest;
         private ChestLink? linkedTargetChest;
@@ -56,26 +57,27 @@ namespace NewLanguageProject
         public override void Entry(IModHelper helper)
         {
             helper.Events.GameLoop.DayStarted += OnDayStarted;
-            helper.Events.GameLoop.DayEnding += OnDayEnding; // Fix for compounding energy
             helper.Events.Player.InventoryChanged += OnInventoryChanged;
             helper.Events.GameLoop.TimeChanged += OnTimeChanged;
             helper.Events.GameLoop.OneSecondUpdateTicked += OnOneSecondUpdateTicked;
             helper.Events.Input.ButtonPressed += OnButtonPressed;
             helper.Events.Content.AssetRequested += OnAssetRequested;
             helper.Events.Player.Warped += OnWarped;
+            helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
-            RemoveTemporaryEnergyBonus(); // Failsafe cleanup
+            RemoveTemporaryEnergyBonus();
 
             shouldDropWindyItems = false;
             shouldGiveEnergyBonus = false;
             shouldApplyHeatPenalty = false;
             slowedTimeAdvancesRemaining = 0;
             shouldBlockNextTimeAdvance = false;
+            wasEatingTimeCharm = false;
 
-            Game1.player.health = Math.Max(Game1.player.health, Game1.player.maxHealth);
+            Game1.player.health = Math.Max(Game1.player.health, 100);
 
             if (Game1.random.NextDouble() < 0.35)
             {
@@ -89,7 +91,7 @@ namespace NewLanguageProject
             AutoPetAnimalsAndPets();
 
             if (isRainyOvergrowthDay)
-                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops yield more and you heal outdoors today.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops may give extra yield today.", HUDMessage.newQuest_type));
 
             if (isWindyDay)
             {
@@ -106,44 +108,16 @@ namespace NewLanguageProject
             this.Monitor.Log("DayStarted event is running.", LogLevel.Info);
         }
 
-        private void OnDayEnding(object? sender, DayEndingEventArgs e)
-        {
-            // Remove the energy bonus BEFORE the game saves overnight to prevent compounding
-            RemoveTemporaryEnergyBonus();
-        }
-
         private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
         {
             if (!Context.IsWorldReady)
                 return;
 
-            // Handle Global Map Teleport Clicks (Fixed cursor issue by using GameMenu)
-            if (isChoosingTeleportDestination && Game1.activeClickableMenu is StardewValley.Menus.GameMenu gameMenu && gameMenu.currentTab == 3) // 3 is the Map tab
+            if ((e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX) && isChoosingTeleportDestination)
             {
-                if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerA)
-                {
-                    var mapPage = gameMenu.pages[3];
-                    string hoverText = this.Helper.Reflection.GetField<string>(mapPage, "hoverText").GetValue();
-
-                    if (!string.IsNullOrWhiteSpace(hoverText))
-                    {
-                        var warpDest = GetWarpDestination(hoverText);
-                        if (warpDest.HasValue)
-                        {
-                            Game1.warpFarmer(warpDest.Value.LocationName, warpDest.Value.X, warpDest.Value.Y, false);
-                            Game1.exitActiveMenu();
-                            isChoosingTeleportDestination = false;
-                            Game1.playSound("wand");
-                            Game1.addHUDMessage(new HUDMessage($"Teleported to {hoverText}.", HUDMessage.newQuest_type));
-                        }
-                        else
-                        {
-                            Game1.addHUDMessage(new HUDMessage($"Cannot teleport directly to {hoverText}. Try another region.", HUDMessage.error_type));
-                        }
-                    }
-                    this.Helper.Input.Suppress(e.Button);
-                    return;
-                }
+                TryTeleportToTile(e.Cursor.Tile);
+                this.Helper.Input.Suppress(e.Button);
+                return;
             }
 
             if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX)
@@ -164,12 +138,6 @@ namespace NewLanguageProject
                 }
 
                 if (TryActivateTeleporter(e.Cursor.Tile, e.Cursor.GrabTile, Game1.player.GetGrabTile()))
-                {
-                    this.Helper.Input.Suppress(e.Button);
-                    return;
-                }
-
-                if (TryUseTimeCharm())
                 {
                     this.Helper.Input.Suppress(e.Button);
                     return;
@@ -208,11 +176,12 @@ namespace NewLanguageProject
                         Name = "Time Charm",
                         DisplayName = "Time Charm",
                         Description = "Slows time for one in-game hour.",
-                        Type = "Crafting",
+                        Type = "Basic",
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 100,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 797
+                        SpriteIndex = 688,
+                        Edibility = 4
                     };
 
                     data[ConveyorItemId] = new ObjectData
@@ -231,12 +200,12 @@ namespace NewLanguageProject
                     {
                         Name = "Teleporter",
                         DisplayName = "Teleporter",
-                        Description = "Click it to open the map, then click a region to blink there instantly.",
+                        Description = "Click it, then click a tile on the current map to blink there.",
                         Type = "Crafting",
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 500,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 787
+                        SpriteIndex = 688
                     };
 
                     data[ButcherKnifeItemId] = new ObjectData
@@ -339,22 +308,23 @@ namespace NewLanguageProject
             }
         }
 
-        private bool TryUseTimeCharm()
+        private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
-            if (Game1.player.CurrentItem?.ItemId != TimeCharmItemId)
-                return false;
+            if (!Context.IsWorldReady)
+                return;
 
-            if (slowedTimeAdvancesRemaining > 0)
+            if (Game1.player.itemToEat != null && Game1.player.itemToEat.ItemId == TimeCharmItemId)
             {
-                Game1.addHUDMessage(new HUDMessage("Time is already slowed.", HUDMessage.error_type));
-                return true;
+                wasEatingTimeCharm = true;
             }
+            else if (wasEatingTimeCharm)
+            {
+                wasEatingTimeCharm = false;
 
-            Game1.player.reduceActiveItemByOne();
-            slowedTimeAdvancesRemaining = 6;
-            shouldBlockNextTimeAdvance = true;
-            Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
-            return true;
+                slowedTimeAdvancesRemaining = 6;
+                shouldBlockNextTimeAdvance = true;
+                Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
+            }
         }
 
         private void OnTimeChanged(object? sender, TimeChangedEventArgs e)
@@ -368,10 +338,7 @@ namespace NewLanguageProject
                 Game1.player.Stamina = Math.Max(0, Game1.player.Stamina - 1f);
 
             if (isRainyOvergrowthDay && Game1.player.currentLocation.IsOutdoors)
-            {
-                Game1.player.health = Math.Min(Game1.player.maxHealth, Game1.player.health + 20);
-                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth heals you.", HUDMessage.newQuest_type));
-            }
+                Game1.player.health = Math.Min(500, Game1.player.health + 2);
         }
 
         private void HandleTimeSlow(TimeChangedEventArgs e)
@@ -476,12 +443,6 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
-            // Stop teleport process if the user closes the menu manually
-            if (isChoosingTeleportDestination && (Game1.activeClickableMenu == null || (Game1.activeClickableMenu is StardewValley.Menus.GameMenu gm && gm.currentTab != 3)))
-            {
-                isChoosingTeleportDestination = false;
-            }
-
             MakePlacedConveyorsPassable();
 
             if (shouldGiveEnergyBonus)
@@ -530,7 +491,7 @@ namespace NewLanguageProject
                 "adityagarg.NewLanguageProject_MineLuck",
                 "New Language Project",
                 "New Language Project",
-                -2,
+                120000,
                 null,
                 -1,
                 effects,
@@ -539,7 +500,7 @@ namespace NewLanguageProject
                 "+3 luck and +1 mining while exploring the mines."
             ));
 
-            Game1.addHUDMessage(new HUDMessage("The mines feel lucky today. Buff applied for the day!", HUDMessage.newQuest_type));
+            Game1.addHUDMessage(new HUDMessage("The mines feel lucky today.", HUDMessage.newQuest_type));
         }
 
         private void SetLinkedSourceChest()
@@ -611,10 +572,8 @@ namespace NewLanguageProject
                 if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && IsTeleporter(obj))
                 {
                     isChoosingTeleportDestination = true;
-                    // Opening the Map tab of the GameMenu ensures the mouse cursor is fully supported
-                    Game1.activeClickableMenu = new StardewValley.Menus.GameMenu(3);
-                        
-                    Game1.addHUDMessage(new HUDMessage("Teleporter ready. Click a region on the map.", HUDMessage.newQuest_type));
+                    Game1.addHUDMessage(new HUDMessage("Teleporter ready. Left-click a destination tile on this map.", HUDMessage.newQuest_type));
+                    location.temporarySprites.Add(new TemporaryAnimatedSprite(10, tile * 64f, Color.Cyan, 3, false, 900f));
                     return true;
                 }
             }
@@ -622,22 +581,30 @@ namespace NewLanguageProject
             return false;
         }
 
-        private (string LocationName, int X, int Y)? GetWarpDestination(string hoverText)
+        private void TryTeleportToTile(Vector2 destinationTile)
         {
-            return hoverText.ToLowerInvariant() switch
+            GameLocation location = Game1.player.currentLocation;
+            isChoosingTeleportDestination = false;
+
+            if (destinationTile.X < 0
+                || destinationTile.Y < 0
+                || destinationTile.X >= location.map.Layers[0].LayerWidth
+                || destinationTile.Y >= location.map.Layers[0].LayerHeight)
             {
-                var text when text.Contains("farm") => ("Farm", 64, 15),
-                var text when text.Contains("town") => ("Town", 35, 35),
-                var text when text.Contains("beach") => ("Beach", 20, 4),
-                var text when text.Contains("forest") => ("Forest", 68, 16),
-                var text when text.Contains("mountain") => ("Mountain", 15, 35),
-                var text when text.Contains("desert") => ("Desert", 15, 40),
-                var text when text.Contains("woods") => ("Woods", 27, 15),
-                var text when text.Contains("quarry") => ("Mountain", 105, 12),
-                var text when text.Contains("clinic") => ("Town", 35, 35),
-                var text when text.Contains("shop") => ("Town", 35, 35),
-                _ => null
-            };
+                Game1.addHUDMessage(new HUDMessage("That teleport destination is outside the map.", HUDMessage.error_type));
+                return;
+            }
+
+            if (location.objects.ContainsKey(destinationTile) || location.terrainFeatures.ContainsKey(destinationTile))
+            {
+                Game1.addHUDMessage(new HUDMessage("That teleport destination is blocked.", HUDMessage.error_type));
+                return;
+            }
+
+            Game1.player.Position = destinationTile * 64f;
+            location.temporarySprites.Add(new TemporaryAnimatedSprite(10, destinationTile * 64f, Color.Cyan, 4, false, 900f));
+            Game1.playSound("wand");
+            Game1.addHUDMessage(new HUDMessage("Teleported.", HUDMessage.newQuest_type));
         }
 
         private bool TryUseButcherKnife(params Vector2[] possibleTiles)
@@ -761,10 +728,8 @@ namespace NewLanguageProject
 
             foreach (Vector2 tile in possibleTiles)
             {
-                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree tree)
+                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree)
                     continue;
-
-                tree.health.Value = 0;
 
                 MethodInfo? performToolAction = feature.GetType().GetMethod(
                     "performToolAction",
@@ -774,12 +739,14 @@ namespace NewLanguageProject
                     null
                 );
 
-                if (performToolAction is not null)
-                {
+                if (performToolAction is null)
+                    return false;
+
+                for (int i = 0; i < 8; i++)
                     performToolAction.Invoke(feature, new object?[] { Game1.player.CurrentTool, 0, tile, location });
-                    Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
-                    return true;
-                }
+
+                Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
+                return true;
             }
 
             return false;
