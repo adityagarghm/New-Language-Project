@@ -74,7 +74,7 @@ namespace NewLanguageProject
             slowedTimeAdvancesRemaining = 0;
             shouldBlockNextTimeAdvance = false;
 
-            Game1.player.health = Math.Max(Game1.player.health, 100);
+            Game1.player.health = Math.Max(Game1.player.health, Game1.player.maxHealth);
 
             if (Game1.random.NextDouble() < 0.35)
             {
@@ -88,7 +88,7 @@ namespace NewLanguageProject
             AutoPetAnimalsAndPets();
 
             if (isRainyOvergrowthDay)
-                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops may give extra yield today.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops yield more and you heal outdoors today.", HUDMessage.newQuest_type));
 
             if (isWindyDay)
             {
@@ -110,11 +110,32 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
-            if ((e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX) && isChoosingTeleportDestination)
+            // Handle Global Map Teleport Clicks
+            if (isChoosingTeleportDestination && Game1.activeClickableMenu is StardewValley.Menus.MapPage mapPage)
             {
-                TryTeleportToTile(e.Cursor.Tile);
-                this.Helper.Input.Suppress(e.Button);
-                return;
+                if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX)
+                {
+                    string hoverText = this.Helper.Reflection.GetField<string>(mapPage, "hoverText").GetValue();
+
+                    if (!string.IsNullOrWhiteSpace(hoverText))
+                    {
+                        var warpDest = GetWarpDestination(hoverText);
+                        if (warpDest.HasValue)
+                        {
+                            Game1.warpFarmer(warpDest.Value.LocationName, warpDest.Value.X, warpDest.Value.Y, false);
+                            Game1.exitActiveMenu();
+                            isChoosingTeleportDestination = false;
+                            Game1.playSound("wand");
+                            Game1.addHUDMessage(new HUDMessage($"Teleported to {hoverText}.", HUDMessage.newQuest_type));
+                        }
+                        else
+                        {
+                            Game1.addHUDMessage(new HUDMessage($"Cannot teleport directly to {hoverText}. Try another region.", HUDMessage.error_type));
+                        }
+                    }
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
             }
 
             if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX)
@@ -183,7 +204,7 @@ namespace NewLanguageProject
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 100,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 688
+                        SpriteIndex = 797 // Changed from Warp Totem to Pearl sprite
                     };
 
                     data[ConveyorItemId] = new ObjectData
@@ -202,12 +223,12 @@ namespace NewLanguageProject
                     {
                         Name = "Teleporter",
                         DisplayName = "Teleporter",
-                        Description = "Click it, then click a tile on the current map to blink there.",
+                        Description = "Click it to open the map, then click a region to blink there instantly.",
                         Type = "Crafting",
                         Category = StardewValley.Object.CraftingCategory,
                         Price = 500,
                         Texture = "Maps/springobjects",
-                        SpriteIndex = 688
+                        SpriteIndex = 787 // Changed from Warp Totem to Battery Pack sprite
                     };
 
                     data[ButcherKnifeItemId] = new ObjectData
@@ -338,8 +359,12 @@ namespace NewLanguageProject
             if (isHotDay && Game1.player.currentLocation.IsOutdoors)
                 Game1.player.Stamina = Math.Max(0, Game1.player.Stamina - 1f);
 
+            // Fixed Health Increase logic
             if (isRainyOvergrowthDay && Game1.player.currentLocation.IsOutdoors)
-                Game1.player.health = Math.Min(500, Game1.player.health + 2);
+            {
+                Game1.player.health = Math.Min(Game1.player.maxHealth, Game1.player.health + 20);
+                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth heals you.", HUDMessage.newQuest_type));
+            }
 
         }
 
@@ -445,6 +470,12 @@ namespace NewLanguageProject
             if (!Context.IsWorldReady)
                 return;
 
+            // Handle canceling global teleport if map menu was closed manually
+            if (isChoosingTeleportDestination && Game1.activeClickableMenu == null)
+            {
+                isChoosingTeleportDestination = false;
+            }
+
             MakePlacedConveyorsPassable();
 
             if (shouldGiveEnergyBonus)
@@ -493,7 +524,7 @@ namespace NewLanguageProject
                 "adityagarg.NewLanguageProject_MineLuck",
                 "New Language Project",
                 "New Language Project",
-                120000,
+                -2, // Fixed: -2 makes it last all day natively
                 null,
                 -1,
                 effects,
@@ -502,7 +533,7 @@ namespace NewLanguageProject
                 "+3 luck and +1 mining while exploring the mines."
             ));
 
-            Game1.addHUDMessage(new HUDMessage("The mines feel lucky today.", HUDMessage.newQuest_type));
+            Game1.addHUDMessage(new HUDMessage("The mines feel lucky today. Buff applied for the day!", HUDMessage.newQuest_type));
         }
 
         private void SetLinkedSourceChest()
@@ -565,6 +596,7 @@ namespace NewLanguageProject
             Game1.addHUDMessage(new HUDMessage("Source chest is empty.", HUDMessage.error_type));
         }
 
+        // --- NEW GLOBAL MAP TELEPORTER LOGIC ---
         private bool TryActivateTeleporter(params Vector2[] possibleTiles)
         {
             GameLocation location = Game1.player.currentLocation;
@@ -574,8 +606,13 @@ namespace NewLanguageProject
                 if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && IsTeleporter(obj))
                 {
                     isChoosingTeleportDestination = true;
-                    Game1.addHUDMessage(new HUDMessage("Teleporter ready. Left-click a destination tile on this map.", HUDMessage.newQuest_type));
-                    location.temporarySprites.Add(new TemporaryAnimatedSprite(10, tile * 64f, Color.Cyan, 3, false, 900f));
+                    // Safely open the global Map Menu
+                    Game1.activeClickableMenu = new StardewValley.Menus.MapPage(
+                        Game1.uiViewport.Width / 2 - 800 / 2, 
+                        Game1.uiViewport.Height / 2 - 600 / 2, 
+                        800, 600);
+                        
+                    Game1.addHUDMessage(new HUDMessage("Teleporter ready. Click a region on the map.", HUDMessage.newQuest_type));
                     return true;
                 }
             }
@@ -583,30 +620,22 @@ namespace NewLanguageProject
             return false;
         }
 
-        private void TryTeleportToTile(Vector2 destinationTile)
+        private (string LocationName, int X, int Y)? GetWarpDestination(string hoverText)
         {
-            GameLocation location = Game1.player.currentLocation;
-            isChoosingTeleportDestination = false;
-
-            if (destinationTile.X < 0
-                || destinationTile.Y < 0
-                || destinationTile.X >= location.map.Layers[0].LayerWidth
-                || destinationTile.Y >= location.map.Layers[0].LayerHeight)
+            return hoverText.ToLowerInvariant() switch
             {
-                Game1.addHUDMessage(new HUDMessage("That teleport destination is outside the map.", HUDMessage.error_type));
-                return;
-            }
-
-            if (location.objects.ContainsKey(destinationTile) || location.terrainFeatures.ContainsKey(destinationTile))
-            {
-                Game1.addHUDMessage(new HUDMessage("That teleport destination is blocked.", HUDMessage.error_type));
-                return;
-            }
-
-            Game1.player.Position = destinationTile * 64f;
-            location.temporarySprites.Add(new TemporaryAnimatedSprite(10, destinationTile * 64f, Color.Cyan, 4, false, 900f));
-            Game1.playSound("wand");
-            Game1.addHUDMessage(new HUDMessage("Teleported.", HUDMessage.newQuest_type));
+                var text when text.Contains("farm") => ("Farm", 64, 15),
+                var text when text.Contains("town") => ("Town", 35, 35),
+                var text when text.Contains("beach") => ("Beach", 20, 4),
+                var text when text.Contains("forest") => ("Forest", 68, 16),
+                var text when text.Contains("mountain") => ("Mountain", 15, 35),
+                var text when text.Contains("desert") => ("Desert", 15, 40),
+                var text when text.Contains("woods") => ("Woods", 27, 15),
+                var text when text.Contains("quarry") => ("Mountain", 105, 12),
+                var text when text.Contains("clinic") => ("Town", 35, 35),
+                var text when text.Contains("shop") => ("Town", 35, 35),
+                _ => null
+            };
         }
 
         private bool TryUseButcherKnife(params Vector2[] possibleTiles)
@@ -721,6 +750,7 @@ namespace NewLanguageProject
             return remove.Invoke(target, new object[] { key }) is bool result && result;
         }
 
+        // --- FIXED ONE-HIT TREE LOGIC ---
         private bool TryOneHitTree(params Vector2[] possibleTiles)
         {
             if (Game1.player.CurrentTool is null || !Game1.player.CurrentTool.Name.Contains("Axe", StringComparison.OrdinalIgnoreCase))
@@ -730,8 +760,11 @@ namespace NewLanguageProject
 
             foreach (Vector2 tile in possibleTiles)
             {
-                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree)
+                if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree tree)
                     continue;
+
+                // Force tree health to 0 so the next tool action instantly destroys it.
+                tree.health.Value = 0;
 
                 MethodInfo? performToolAction = feature.GetType().GetMethod(
                     "performToolAction",
@@ -741,14 +774,12 @@ namespace NewLanguageProject
                     null
                 );
 
-                if (performToolAction is null)
-                    return false;
-
-                for (int i = 0; i < 8; i++)
+                if (performToolAction is not null)
+                {
                     performToolAction.Invoke(feature, new object?[] { Game1.player.CurrentTool, 0, tile, location });
-
-                Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
-                return true;
+                    Game1.addHUDMessage(new HUDMessage("One-hit tree chop!", HUDMessage.newQuest_type));
+                    return true;
+                }
             }
 
             return false;
