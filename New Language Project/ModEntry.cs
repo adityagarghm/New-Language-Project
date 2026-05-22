@@ -13,6 +13,7 @@ using StardewValley.Menus;
 using StardewValley.Objects;
 using StardewValley.TerrainFeatures;
 using Microsoft.Xna.Framework.Graphics;
+using StardewValley.GameData.Tools;
 
 namespace NewLanguageProject
 {
@@ -441,6 +442,30 @@ namespace NewLanguageProject
 
         private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
         {
+            if (e.NameWithoutLocale.IsEquivalentTo("Data/Tools"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, ToolData>().Data;
+
+                    data[ButcherKnifeItemId] = new ToolData
+                    {
+                        ClassName = "GenericTool",
+                        Name = ButcherKnifeItemId,
+                        DisplayName = "Butcher Knife",
+                        Description = "Use on farm animals to turn them into raw meat.",
+                        Texture = "TileSheets/weapons",
+                        SpriteIndex = 4,
+                        MenuSpriteIndex = 4,
+                        CanBeLostOnDeath = false,
+                        SetProperties = new Dictionary<string, string>
+                        {
+                            { "InstantUse", "true" },
+                            { "IsEfficient", "true" }
+                        }
+                    };
+                });
+            }
             if (e.NameWithoutLocale.IsEquivalentTo("Data/Objects"))
             {
                 e.Edit(asset =>
@@ -482,18 +507,6 @@ namespace NewLanguageProject
                         Price = 500,
                         Texture = "Maps/springobjects",
                         SpriteIndex = 787
-                    };
-
-                    data[ButcherKnifeItemId] = new ObjectData
-                    {
-                        Name = "Butcher Knife",
-                        DisplayName = "Butcher Knife",
-                        Description = "Use on farm animals to turn them into raw meat.",
-                        Type = "Crafting",
-                        Category = StardewValley.Object.CraftingCategory,
-                        Price = 1500,
-                        Texture = "Maps/springobjects",
-                        SpriteIndex = 120
                     };
 
                     data[RawMeatItemId] = new ObjectData
@@ -836,7 +849,7 @@ namespace NewLanguageProject
 
         private bool TryUseButcherKnife(params Vector2[] possibleTiles)
         {
-            if (Game1.player.CurrentItem?.ItemId != ButcherKnifeItemId)
+            if (Game1.player.CurrentItem is not Tool knife || knife.Name != ButcherKnifeItemId)
                 return false;
 
             FarmAnimal? animal = FindAnimalAtTiles(possibleTiles);
@@ -1134,14 +1147,14 @@ namespace NewLanguageProject
         {
             foreach (ShopItemData item in shop.Items)
             {
-                if (item.ItemId == $"(O){ButcherKnifeItemId}" || item.ItemId == ButcherKnifeItemId)
+                if (item.ItemId == $"(T){ButcherKnifeItemId}" || item.ItemId == ButcherKnifeItemId)
                     return;
             }
 
             shop.Items.Add(new ShopItemData
             {
                 Id = "adityagarg.NewLanguageProject_ButcherKnife",
-                ItemId = $"(O){ButcherKnifeItemId}",
+                ItemId = $"(T){ButcherKnifeItemId}",
                 Price = 1500,
                 AvailableStock = 1
             });
