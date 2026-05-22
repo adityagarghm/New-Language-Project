@@ -12,6 +12,7 @@ using StardewValley.GameData.Shops;
 using StardewValley.Menus;
 using StardewValley.Objects;
 using StardewValley.TerrainFeatures;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace NewLanguageProject
 {
@@ -53,8 +54,8 @@ namespace NewLanguageProject
         private bool isChangingTime;
         private bool wasEatingTimeCharm;
 
-        private ChestLink? linkedSourceChest;
-        private ChestLink? linkedTargetChest;
+        private Chest? globalTargetChest;
+        private bool isSelectingTargetInWorld;
         private bool isChoosingTeleportDestination;
 
         public override void Entry(IModHelper helper)
@@ -68,15 +69,9 @@ namespace NewLanguageProject
             helper.Events.Content.AssetRequested += OnAssetRequested;
             helper.Events.Player.Warped += OnWarped;
             helper.Events.Display.RenderedActiveMenu += OnRenderedActiveMenu;
+            helper.Events.Display.RenderedWorld += OnRenderedWorld;
         }
 
-        private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
-        {
-            if (isChoosingTeleportDestination)
-            {
-                Game1.mouseCursorTransparency = 1f;
-            }
-        }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
         {
@@ -96,6 +91,7 @@ namespace NewLanguageProject
                 pendingEnergyBonus = Game1.random.Next(50, 101);
                 shouldGiveEnergyBonus = true;
             }
+
             isRainyOvergrowthDay = Game1.isRaining || Game1.isLightning;
             isWindyDay = Game1.isDebrisWeather;
             isHotDay = Game1.currentSeason == "summer" && !Game1.isRaining && !Game1.isLightning;
@@ -103,18 +99,21 @@ namespace NewLanguageProject
             AutoPetAnimalsAndPets();
 
             if (isRainyOvergrowthDay)
-                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops may give extra yield today.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage("Rainy overgrowth: crops may give extra yield today.",
+                    HUDMessage.newQuest_type));
 
             if (isWindyDay)
             {
-                Game1.addHUDMessage(new HUDMessage("Windy day: wood and seeds may appear around the farm.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage("Windy day: wood and seeds may appear around the farm.",
+                    HUDMessage.newQuest_type));
                 shouldDropWindyItems = true;
             }
 
             if (isHotDay)
             {
                 shouldApplyHeatPenalty = true;
-                Game1.addHUDMessage(new HUDMessage("Heat wave: stamina drains faster outdoors today.", HUDMessage.error_type));
+                Game1.addHUDMessage(new HUDMessage("Heat wave: stamina drains faster outdoors today.",
+                    HUDMessage.error_type));
             }
 
             this.Monitor.Log("DayStarted event is running.", LogLevel.Info);
@@ -123,8 +122,124 @@ namespace NewLanguageProject
         private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
         {
             if (!Context.IsWorldReady)
-                return;
+                return; 
+            if (isSelectingTargetInWorld)
+            {
+                if (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX)
+                {
+                    Vector2 clickedTile = e.Cursor.Tile;
 
+                    if (Game1.player.currentLocation.objects.TryGetValue(clickedTile, out StardewValley.Object obj) && obj is Chest clickedChest)
+                    {
+                        globalTargetChest = clickedChest;
+                        isSelectingTargetInWorld = false;
+                        Game1.playSound("drumkit6");
+                        Game1.addHUDMessage(new HUDMessage("Target chest linked successfully!", HUDMessage.newQuest_type));
+                    }
+                    else
+                    {
+                        Game1.addHUDMessage(new HUDMessage("Must click a valid chest! Right-click to cancel.", HUDMessage.error_type));
+                    }
+
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+
+                if (e.Button == SButton.MouseRight || e.Button == SButton.ControllerA)
+                {
+                    isSelectingTargetInWorld = false;
+                    Game1.playSound("cancel");
+                    Game1.addHUDMessage(new HUDMessage("Linking canceled.", HUDMessage.error_type));
+                    this.Helper.Input.Suppress(e.Button);
+                    return;
+                }
+            }
+            if (Game1.activeClickableMenu is ItemGrabMenu grabMenu)
+            {
+                if ((e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX) && grabMenu.organizeButton != null)
+                {
+                    int mouseX = Game1.getOldMouseX();
+                    int mouseY = Game1.getOldMouseY();
+
+                    Rectangle setButtonBounds = new Rectangle(
+                        grabMenu.organizeButton.bounds.X - 76,
+                        grabMenu.organizeButton.bounds.Y,
+                        72,
+                        64
+                    );
+
+                    if (setButtonBounds.Contains(mouseX, mouseY))
+                    {
+                        this.Helper.Input.Suppress(e.Button);
+                        isSelectingTargetInWorld = true;
+                        Game1.playSound("select");
+                        Game1.exitActiveMenu();
+                        Game1.addHUDMessage(new HUDMessage(
+                            "Click on any chest in the world to set it as your target.",
+                            HUDMessage.newQuest_type
+                        ));
+                        return;
+                    }
+                }
+
+                if (e.Button == SButton.T)
+                {
+                    Item itemToTransfer = grabMenu.hoveredItem;
+
+                    if (itemToTransfer != null)
+                    {
+                        this.Helper.Input.Suppress(e.Button);
+
+                        if (globalTargetChest == null)
+                        {
+                            Game1.playSound("cancel");
+                            Game1.addHUDMessage(new HUDMessage(
+                                "No target chest linked yet! Click SET first.",
+                                HUDMessage.error_type
+                            ));
+                            return;
+                        }
+
+                        if (grabMenu.context is Chest currentChest && currentChest == globalTargetChest)
+                        {
+                            Game1.playSound("cancel");
+                            Game1.addHUDMessage(new HUDMessage(
+                                "Cannot transfer items into the exact same chest.",
+                                HUDMessage.error_type
+                            ));
+                            return;
+                        }
+
+                        Item? leftovers = globalTargetChest.addItem(itemToTransfer);
+
+                        if (leftovers == null)
+                        {
+                            if (grabMenu.ItemsToGrabMenu.actualInventory.Contains(itemToTransfer))
+                            {
+                                int idx = grabMenu.ItemsToGrabMenu.actualInventory.IndexOf(itemToTransfer);
+                                if (idx != -1) grabMenu.ItemsToGrabMenu.actualInventory[idx] = null;
+                            }
+                            else if (Game1.player.Items.Contains(itemToTransfer))
+                            {
+                                int idx = Game1.player.Items.IndexOf(itemToTransfer);
+                                if (idx != -1) Game1.player.Items[idx] = null;
+                            }
+
+                            Game1.playSound("stoneStep");
+                        }
+                        else
+                        {
+                            itemToTransfer.Stack = leftovers.Stack;
+                            Game1.playSound("stoneStep");
+                            Game1.addHUDMessage(new HUDMessage(
+                                "Target chest filled up completely!",
+                                HUDMessage.error_type
+                            ));
+                        }
+                        return;
+                    }
+                }
+            }
             object? mapPageInstance = null;
             if (Game1.activeClickableMenu is GameMenu gm)
             {
@@ -149,9 +264,11 @@ namespace NewLanguageProject
                     isChoosingTeleportDestination = false;
             }
 
-            if (isChoosingTeleportDestination && mapPageInstance != null && (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX))
+            if (isChoosingTeleportDestination && mapPageInstance != null &&
+                (e.Button == SButton.MouseLeft || e.Button == SButton.ControllerX))
             {
-                FieldInfo? hoverTextField = mapPageInstance.GetType().GetField("hoverText", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                FieldInfo? hoverTextField = mapPageInstance.GetType().GetField("hoverText",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 string? hoverText = hoverTextField?.GetValue(mapPageInstance) as string;
 
                 string targetLocation = "";
@@ -160,23 +277,65 @@ namespace NewLanguageProject
                 if (!string.IsNullOrEmpty(hoverText))
                 {
                     string text = hoverText.ToLower();
-                    if (text.Contains("farm")) { targetLocation = "Farm"; targetTile = new Vector2(64, 30); }
-                    else if (text.Contains("secret woods") || text.Contains("woods")) { targetLocation = "Woods"; targetTile = new Vector2(20, 20); }
-                    else if (text.Contains("marnie") || text.Contains("leah") || text.Contains("wizard") || text.Contains("forest") || text.Contains("cindersap") || text.Contains("hat")) { targetLocation = "Forest"; targetTile = new Vector2(80, 20); }
-                    else if (text.Contains("desert") || text.Contains("oasis") || text.Contains("sandy")) { targetLocation = "Desert"; targetTile = new Vector2(25, 35); }
-                    else if (text.Contains("railroad") || text.Contains("spa") || text.Contains("bath") || text.Contains("witch")) { targetLocation = "Railroad"; targetTile = new Vector2(20, 45); }
-                    else if (text.Contains("mountain") || text.Contains("robin") || text.Contains("carpenter") || text.Contains("mine") || text.Contains("guild") || text.Contains("linus") || text.Contains("quarry")) { targetLocation = "Mountain"; targetTile = new Vector2(50, 20); }
-                    else if (text.Contains("beach") || text.Contains("willy")) { targetLocation = "Beach"; targetTile = new Vector2(40, 10); }
-                    else if (text.Contains("town") || text.Contains("pelican") || text.Contains("pierre") || text.Contains("saloon") || text.Contains("blacksmith") || text.Contains("museum") || text.Contains("joja") || text.Contains("clinic") || text.Contains("lewis")) { targetLocation = "Town"; targetTile = new Vector2(40, 40); }
+                    if (text.Contains("farm"))
+                    {
+                        targetLocation = "Farm";
+                        targetTile = new Vector2(64, 30);
+                    }
+                    else if (text.Contains("secret woods") || text.Contains("woods"))
+                    {
+                        targetLocation = "Woods";
+                        targetTile = new Vector2(20, 20);
+                    }
+                    else if (text.Contains("marnie") || text.Contains("leah") || text.Contains("wizard") ||
+                             text.Contains("forest") || text.Contains("cindersap") || text.Contains("hat"))
+                    {
+                        targetLocation = "Forest";
+                        targetTile = new Vector2(80, 20);
+                    }
+                    else if (text.Contains("desert") || text.Contains("oasis") || text.Contains("sandy"))
+                    {
+                        targetLocation = "Desert";
+                        targetTile = new Vector2(25, 35);
+                    }
+                    else if (text.Contains("railroad") || text.Contains("spa") || text.Contains("bath") ||
+                             text.Contains("witch"))
+                    {
+                        targetLocation = "Railroad";
+                        targetTile = new Vector2(20, 45);
+                    }
+                    else if (text.Contains("mountain") || text.Contains("robin") || text.Contains("carpenter") ||
+                             text.Contains("mine") || text.Contains("guild") || text.Contains("linus") ||
+                             text.Contains("quarry"))
+                    {
+                        targetLocation = "Mountain";
+                        targetTile = new Vector2(50, 20);
+                    }
+                    else if (text.Contains("beach") || text.Contains("willy"))
+                    {
+                        targetLocation = "Beach";
+                        targetTile = new Vector2(40, 10);
+                    }
+                    else if (text.Contains("town") || text.Contains("pelican") || text.Contains("pierre") ||
+                             text.Contains("saloon") || text.Contains("blacksmith") || text.Contains("museum") ||
+                             text.Contains("joja") || text.Contains("clinic") || text.Contains("lewis"))
+                    {
+                        targetLocation = "Town";
+                        targetTile = new Vector2(40, 40);
+                    }
                 }
 
                 if (string.IsNullOrEmpty(targetLocation))
                 {
                     Type menuType = mapPageInstance.GetType();
-                    FieldInfo? xField = menuType.GetField("xPositionOnInterface", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    FieldInfo? yField = menuType.GetField("yPositionOnInterface", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    FieldInfo? wField = menuType.GetField("width", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    FieldInfo? hField = menuType.GetField("height", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? xField = menuType.GetField("xPositionOnInterface",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? yField = menuType.GetField("yPositionOnInterface",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? wField = menuType.GetField("width",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    FieldInfo? hField = menuType.GetField("height",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
                     int xPos = (int)(xField?.GetValue(mapPageInstance) ?? 0);
                     int yPos = (int)(yField?.GetValue(mapPageInstance) ?? 0);
@@ -188,13 +347,49 @@ namespace NewLanguageProject
                     float pctX = (float)mapX / width;
                     float pctY = (float)mapY / height;
 
-                    if (pctX < 0.25f && pctY < 0.4f) { targetLocation = "Desert"; targetTile = new Vector2(25, 35); }
-                    else if (pctX < 0.35f && pctY >= 0.4f && pctY < 0.65f) { targetLocation = "Farm"; targetTile = new Vector2(64, 30); }
-                    else if (pctX < 0.35f && pctY >= 0.65f) { targetLocation = "Forest"; targetTile = new Vector2(80, 20); }
-                    else if (pctY < 0.3f) { if (pctX > 0.6f) { targetLocation = "Mountain"; targetTile = new Vector2(50, 20); } else { targetLocation = "Railroad"; targetTile = new Vector2(20, 45); } }
-                    else if (pctY > 0.75f) { targetLocation = "Beach"; targetTile = new Vector2(40, 10); }
-                    else if (pctX > 0.7f && pctY < 0.5f) { targetLocation = "Mountain"; targetTile = new Vector2(90, 35); }
-                    else { targetLocation = "Town"; targetTile = new Vector2(40, 40); }
+                    if (pctX < 0.25f && pctY < 0.4f)
+                    {
+                        targetLocation = "Desert";
+                        targetTile = new Vector2(25, 35);
+                    }
+                    else if (pctX < 0.35f && pctY >= 0.4f && pctY < 0.65f)
+                    {
+                        targetLocation = "Farm";
+                        targetTile = new Vector2(64, 30);
+                    }
+                    else if (pctX < 0.35f && pctY >= 0.65f)
+                    {
+                        targetLocation = "Forest";
+                        targetTile = new Vector2(80, 20);
+                    }
+                    else if (pctY < 0.3f)
+                    {
+                        if (pctX > 0.6f)
+                        {
+                            targetLocation = "Mountain";
+                            targetTile = new Vector2(50, 20);
+                        }
+                        else
+                        {
+                            targetLocation = "Railroad";
+                            targetTile = new Vector2(20, 45);
+                        }
+                    }
+                    else if (pctY > 0.75f)
+                    {
+                        targetLocation = "Beach";
+                        targetTile = new Vector2(40, 10);
+                    }
+                    else if (pctX > 0.7f && pctY < 0.5f)
+                    {
+                        targetLocation = "Mountain";
+                        targetTile = new Vector2(90, 35);
+                    }
+                    else
+                    {
+                        targetLocation = "Town";
+                        targetTile = new Vector2(40, 40);
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(targetLocation))
@@ -239,14 +434,6 @@ namespace NewLanguageProject
                 }
             }
 
-            if (e.Button == SButton.L)
-                SetLinkedSourceChest();
-
-            if (e.Button == SButton.K)
-                SetLinkedTargetChest();
-
-            if (e.Button == SButton.J)
-                MoveOneStackBetweenLinkedChests();
 
             if (e.Button == SButton.P)
                 AutoPetAnimalsAndPets();
@@ -438,7 +625,8 @@ namespace NewLanguageProject
 
                 slowedTimeAdvancesRemaining = 6;
                 shouldBlockNextTimeAdvance = true;
-                Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.",
+                    HUDMessage.newQuest_type));
             }
         }
 
@@ -550,7 +738,8 @@ namespace NewLanguageProject
                 Game1.createItemDebris(item, pixelPosition, Game1.random.Next(4), farm);
             }
 
-            Game1.addHUDMessage(new HUDMessage("The wind scattered useful debris around the farm.", HUDMessage.newQuest_type));
+            Game1.addHUDMessage(new HUDMessage("The wind scattered useful debris around the farm.",
+                HUDMessage.newQuest_type));
         }
 
         private void OnOneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
@@ -569,7 +758,8 @@ namespace NewLanguageProject
                 Game1.player.Stamina = Game1.player.MaxStamina;
                 Game1.player.modData[EnergyBonusKey] = temporaryEnergyBonus.ToString();
 
-                Game1.addHUDMessage(new HUDMessage($"You woke up energized. +{pendingEnergyBonus} max energy today.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage($"You woke up energized. +{pendingEnergyBonus} max energy today.",
+                    HUDMessage.newQuest_type));
             }
 
             if (shouldDropWindyItems)
@@ -616,69 +806,10 @@ namespace NewLanguageProject
             Game1.addHUDMessage(new HUDMessage("The mines feel lucky today.", HUDMessage.newQuest_type));
         }
 
-        private void SetLinkedSourceChest()
-        {
-            Chest? chest = GetFacingChest();
-
-            if (chest is null)
-            {
-                Game1.addHUDMessage(new HUDMessage("Face a chest first.", HUDMessage.error_type));
-                return;
-            }
-
-            linkedSourceChest = GetCurrentChestLink();
-            Game1.addHUDMessage(new HUDMessage("Linked source chest set.", HUDMessage.newQuest_type));
-        }
-
-        private void SetLinkedTargetChest()
-        {
-            Chest? chest = GetFacingChest();
-
-            if (chest is null)
-            {
-                Game1.addHUDMessage(new HUDMessage("Face a chest first.", HUDMessage.error_type));
-                return;
-            }
-
-            linkedTargetChest = GetCurrentChestLink();
-            Game1.addHUDMessage(new HUDMessage("Linked target chest set.", HUDMessage.newQuest_type));
-        }
-
-        private void MoveOneStackBetweenLinkedChests()
-        {
-            Chest? source = GetChest(linkedSourceChest);
-            Chest? target = GetChest(linkedTargetChest);
-
-            if (source is null || target is null)
-            {
-                Game1.addHUDMessage(new HUDMessage("Set source with L and target with K.", HUDMessage.error_type));
-                return;
-            }
-
-            for (int i = 0; i < source.Items.Count; i++)
-            {
-                Item? item = source.Items[i];
-
-                if (item is null)
-                    continue;
-
-                source.Items[i] = null;
-                Item? leftover = target.addItem(item);
-
-                if (leftover is not null)
-                    source.addItem(leftover);
-                else
-                    Game1.addHUDMessage(new HUDMessage("Sent item stack through linked chests.", HUDMessage.newQuest_type));
-
-                return;
-            }
-
-            Game1.addHUDMessage(new HUDMessage("Source chest is empty.", HUDMessage.error_type));
-        }
-
         private bool TryActivateTeleporter(params Vector2[] possibleTiles)
         {
-            bool isHoldingTeleporter = Game1.player.CurrentItem?.ItemId == TeleporterItemId || Game1.player.CurrentItem?.Name == "Teleporter";
+            bool isHoldingTeleporter = Game1.player.CurrentItem?.ItemId == TeleporterItemId ||
+                                       Game1.player.CurrentItem?.Name == "Teleporter";
             bool isInteractingWithPlaced = false;
 
             GameLocation location = Game1.player.currentLocation;
@@ -732,7 +863,8 @@ namespace NewLanguageProject
 
             Game1.player.addItemToInventoryBool(new StardewValley.Object(product.ItemId, product.Amount));
             Game1.playSound("daggerswipe");
-            Game1.addHUDMessage(new HUDMessage($"{animalName} became {product.Amount} {productName}.", HUDMessage.newQuest_type));
+            Game1.addHUDMessage(new HUDMessage($"{animalName} became {product.Amount} {productName}.",
+                HUDMessage.newQuest_type));
             return true;
         }
 
@@ -784,7 +916,8 @@ namespace NewLanguageProject
             {
                 foreach (GameLocation location in Game1.locations)
                 {
-                    foreach (FieldInfo field in location.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                    foreach (FieldInfo field in location.GetType()
+                                 .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
                     {
                         if (!field.Name.Contains("animals", StringComparison.OrdinalIgnoreCase))
                             continue;
@@ -803,7 +936,8 @@ namespace NewLanguageProject
 
         private static bool RemoveAnimalFromObject(object target, long animalId)
         {
-            FieldInfo? field = target.GetType().GetField("animals", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            FieldInfo? field = target.GetType().GetField("animals",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             object? animals = field?.GetValue(target);
 
             return animals is not null && InvokeRemoveByLong(animals, animalId);
@@ -821,7 +955,8 @@ namespace NewLanguageProject
 
         private bool TryOneHitTree(params Vector2[] possibleTiles)
         {
-            if (Game1.player.CurrentTool is null || !Game1.player.CurrentTool.Name.Contains("Axe", StringComparison.OrdinalIgnoreCase))
+            if (Game1.player.CurrentTool is null ||
+                !Game1.player.CurrentTool.Name.Contains("Axe", StringComparison.OrdinalIgnoreCase))
                 return false;
 
             GameLocation location = Game1.player.currentLocation;
@@ -864,7 +999,8 @@ namespace NewLanguageProject
 
             if (heldItem is null)
             {
-                Game1.addHUDMessage(new HUDMessage("Hold an item before placing it on the conveyor.", HUDMessage.error_type));
+                Game1.addHUDMessage(new HUDMessage("Hold an item before placing it on the conveyor.",
+                    HUDMessage.error_type));
                 return true;
             }
 
@@ -876,7 +1012,9 @@ namespace NewLanguageProject
             if (path.Machines.Count == 0)
             {
                 DrawConveyorPath(location, path.ConveyorTiles, Color.Yellow);
-                Game1.addHUDMessage(new HUDMessage($"Conveyor path has {path.ConveyorTiles.Count} belt(s), but no machine at the end.", HUDMessage.error_type));
+                Game1.addHUDMessage(new HUDMessage(
+                    $"Conveyor path has {path.ConveyorTiles.Count} belt(s), but no machine at the end.",
+                    HUDMessage.error_type));
                 return true;
             }
 
@@ -890,7 +1028,9 @@ namespace NewLanguageProject
 
                 Game1.player.reduceActiveItemByOne();
                 DrawConveyorPath(location, path.ConveyorTiles, Color.LimeGreen);
-                Game1.addHUDMessage(new HUDMessage($"Conveyor sent {heldItem.DisplayName} through {path.ConveyorTiles.Count} belt(s).", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage(
+                    $"Conveyor sent {heldItem.DisplayName} through {path.ConveyorTiles.Count} belt(s).",
+                    HUDMessage.newQuest_type));
                 return true;
             }
 
@@ -955,16 +1095,16 @@ namespace NewLanguageProject
         private static bool IsConveyor(StardewValley.Object obj)
         {
             return obj.ItemId == ConveyorItemId
-                || obj.QualifiedItemId == $"(O){ConveyorItemId}"
-                || obj.QualifiedItemId == $"(BC){ConveyorItemId}"
-                || obj.Name == "Conveyor";
+                   || obj.QualifiedItemId == $"(O){ConveyorItemId}"
+                   || obj.QualifiedItemId == $"(BC){ConveyorItemId}"
+                   || obj.Name == "Conveyor";
         }
 
         private static bool IsTeleporter(StardewValley.Object obj)
         {
             return obj.ItemId == TeleporterItemId
-                || obj.QualifiedItemId == $"(O){TeleporterItemId}"
-                || obj.Name == "Teleporter";
+                   || obj.QualifiedItemId == $"(O){TeleporterItemId}"
+                   || obj.Name == "Teleporter";
         }
 
         private void MakePlacedConveyorsPassable()
@@ -1034,7 +1174,8 @@ namespace NewLanguageProject
             }
 
             if (animalsPetted > 0 || petsPetted > 0)
-                Game1.addHUDMessage(new HUDMessage($"Auto-petted {animalsPetted} animals and {petsPetted} pets.", HUDMessage.newQuest_type));
+                Game1.addHUDMessage(new HUDMessage($"Auto-petted {animalsPetted} animals and {petsPetted} pets.",
+                    HUDMessage.newQuest_type));
         }
 
         private void MarkPetAsPetted(NPC pet)
@@ -1050,7 +1191,8 @@ namespace NewLanguageProject
 
         private static long GetNetLongValue(object target, string fieldName)
         {
-            FieldInfo? field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            FieldInfo? field = target.GetType().GetField(fieldName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
             if (field?.GetValue(target) is not object netField)
                 return 0;
@@ -1063,7 +1205,8 @@ namespace NewLanguageProject
 
         private static void SetNetFieldValue(object target, string fieldName, object value)
         {
-            FieldInfo? field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            FieldInfo? field = target.GetType().GetField(fieldName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
             if (field?.GetValue(target) is not object netField)
                 return;
@@ -1072,39 +1215,7 @@ namespace NewLanguageProject
             valueProperty?.SetValue(netField, value);
         }
 
-        private Chest? GetFacingChest()
-        {
-            GameLocation location = Game1.player.currentLocation;
-            Vector2 tile = Game1.player.GetGrabTile();
-
-            if (location.objects.TryGetValue(tile, out StardewValley.Object obj) && obj is Chest chest)
-                return chest;
-
-            return null;
-        }
-
-        private ChestLink GetCurrentChestLink()
-        {
-            return new ChestLink(Game1.player.currentLocation.NameOrUniqueName, Game1.player.GetGrabTile());
-        }
-
-        private Chest? GetChest(ChestLink? link)
-        {
-            if (link is null)
-                return null;
-
-            GameLocation? location = Game1.getLocationFromName(link.LocationName);
-
-            if (location is null)
-                return null;
-
-            if (location.objects.TryGetValue(link.Tile, out StardewValley.Object obj) && obj is Chest chest)
-                return chest;
-
-            return null;
-        }
-
-        private static bool RemoveItems(IList<Item?> items, string itemId, int count)
+                private static bool RemoveItems(IList<Item?> items, string itemId, int count)
         {
             int remaining = count;
 
@@ -1129,16 +1240,67 @@ namespace NewLanguageProject
             return false;
         }
 
-        private sealed class ChestLink
+        private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
         {
-            public ChestLink(string locationName, Vector2 tile)
-            {
-                LocationName = locationName;
-                Tile = tile;
-            }
+            if (isChoosingTeleportDestination)
+                Game1.mouseCursorTransparency = 1f;
 
-            public string LocationName { get; }
-            public Vector2 Tile { get; }
+            if (!Context.IsWorldReady)
+                return;
+
+            if (Game1.activeClickableMenu is ItemGrabMenu grabMenu && grabMenu.organizeButton != null)
+            {
+                Game1.mouseCursorTransparency = 1f;
+                int mouseX = Game1.getOldMouseX();
+                int mouseY = Game1.getOldMouseY();
+
+                Rectangle setButtonBounds = new Rectangle(
+                    grabMenu.organizeButton.bounds.X - 76,
+                    grabMenu.organizeButton.bounds.Y,
+                    72,
+                    64
+                );
+
+                IClickableMenu.drawTextureBox(
+                    e.SpriteBatch,
+                    Game1.mouseCursors,
+                    new Rectangle(293, 360, 24, 24),
+                    setButtonBounds.X,
+                    setButtonBounds.Y,
+                    setButtonBounds.Width,
+                    setButtonBounds.Height,
+                    setButtonBounds.Contains(mouseX, mouseY) ? Color.Wheat : Color.White,
+                    4f,
+                    false
+                );
+
+                Utility.drawTextWithShadow(
+                    e.SpriteBatch,
+                    "SET",
+                    Game1.smallFont,
+                    new Vector2(setButtonBounds.X + 16, setButtonBounds.Y + 16),
+                    Game1.textColor
+                );
+            }
+        }
+
+        private void OnRenderedWorld(object? sender, RenderedWorldEventArgs e)
+        {
+            if (!Context.IsWorldReady || !isSelectingTargetInWorld)
+                return;
+
+            Vector2 mouseTile = new Vector2(
+                (Game1.getOldMouseX() + Game1.viewport.X) / 64,
+                (Game1.getOldMouseY() + Game1.viewport.Y) / 64
+            );
+
+            Vector2 position = (mouseTile * 64f) - new Vector2(Game1.viewport.X, Game1.viewport.Y);
+
+            GameLocation location = Game1.player.currentLocation;
+            bool isValidChest = location.objects.TryGetValue(mouseTile, out StardewValley.Object obj) && obj is Chest;
+
+            Color overlayColor = isValidChest ? Color.Lime * 0.4f : Color.Red * 0.4f;
+            e.SpriteBatch.Draw(Game1.staminaRect, new Rectangle((int)position.X, (int)position.Y, 64, 64), overlayColor);
         }
 
         private sealed class ConveyorPath
