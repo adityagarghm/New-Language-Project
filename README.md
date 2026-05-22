@@ -7,6 +7,9 @@ SDV mods list:
 - time slow craft
 - teleporter
 - butcher knife that allows you to take meat from animals
-
-Upcoming 
 - updated chest link: you can transport items between chests without moving
+
+Upcoming
+- updating the butcher knife to a weapon that swings 
+- be able to complete community center bundles without having to go all the way to place the items
+- maybe? more machines
