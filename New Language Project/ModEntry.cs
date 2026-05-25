@@ -85,7 +85,7 @@ namespace NewLanguageProject
             shouldBlockNextTimeAdvance = false;
             wasEatingTimeCharm = false;
 
-            Game1.player.health = Math.Max(Game1.player.health, 100);
+            Game1.player.health = Math.Max(Game1.player.health, 300);
 
             if (Game1.random.NextDouble() < 0.35)
             {
@@ -274,125 +274,111 @@ namespace NewLanguageProject
 
                 string targetLocation = "";
                 Vector2 targetTile = new Vector2(20, 20);
-
                 if (!string.IsNullOrEmpty(hoverText))
                 {
                     string text = hoverText.ToLower();
-                    if (text.Contains("farm"))
-                    {
-                        targetLocation = "Farm";
-                        targetTile = new Vector2(64, 30);
-                    }
-                    else if (text.Contains("secret woods") || text.Contains("woods"))
-                    {
-                        targetLocation = "Woods";
-                        targetTile = new Vector2(20, 20);
-                    }
-                    else if (text.Contains("marnie") || text.Contains("leah") || text.Contains("wizard") ||
-                             text.Contains("forest") || text.Contains("cindersap") || text.Contains("hat"))
-                    {
-                        targetLocation = "Forest";
-                        targetTile = new Vector2(80, 20);
-                    }
-                    else if (text.Contains("desert") || text.Contains("oasis") || text.Contains("sandy"))
-                    {
-                        targetLocation = "Desert";
-                        targetTile = new Vector2(25, 35);
-                    }
-                    else if (text.Contains("railroad") || text.Contains("spa") || text.Contains("bath") ||
-                             text.Contains("witch"))
-                    {
-                        targetLocation = "Railroad";
-                        targetTile = new Vector2(20, 45);
-                    }
-                    else if (text.Contains("mountain") || text.Contains("robin") || text.Contains("carpenter") ||
-                             text.Contains("mine") || text.Contains("guild") || text.Contains("linus") ||
-                             text.Contains("quarry"))
-                    {
-                        targetLocation = "Mountain";
-                        targetTile = new Vector2(50, 20);
-                    }
-                    else if (text.Contains("beach") || text.Contains("willy"))
-                    {
-                        targetLocation = "Beach";
-                        targetTile = new Vector2(40, 10);
-                    }
-                    else if (text.Contains("town") || text.Contains("pelican") || text.Contains("pierre") ||
-                             text.Contains("saloon") || text.Contains("blacksmith") || text.Contains("museum") ||
-                             text.Contains("joja") || text.Contains("clinic") || text.Contains("lewis"))
-                    {
-                        targetLocation = "Town";
-                        targetTile = new Vector2(40, 40);
-                    }
-                }
 
-                if (string.IsNullOrEmpty(targetLocation))
-                {
-                    Type menuType = mapPageInstance.GetType();
-                    FieldInfo? xField = menuType.GetField("xPositionOnInterface",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    FieldInfo? yField = menuType.GetField("yPositionOnInterface",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    FieldInfo? wField = menuType.GetField("width",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    FieldInfo? hField = menuType.GetField("height",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    switch (text)
+                    {
+                        // ===== TOWN =====
+                        case var _ when text.Contains("town"):
+                        case var _ when text.Contains("pelican"):
+                            targetLocation = "Town";
+                            targetTile = new Vector2(29, 67);
+                            break;
 
-                    int xPos = (int)(xField?.GetValue(mapPageInstance) ?? 0);
-                    int yPos = (int)(yField?.GetValue(mapPageInstance) ?? 0);
-                    int width = (int)(wField?.GetValue(mapPageInstance) ?? Game1.viewport.Width);
-                    int height = (int)(hField?.GetValue(mapPageInstance) ?? Game1.viewport.Height);
+                        case var _ when text.Contains("pierre"):
+                            targetLocation = "SeedShop";
+                            targetTile = new Vector2(4, 19);
+                            break;
 
-                    int mapX = Game1.getMouseX() - xPos;
-                    int mapY = Game1.getMouseY() - yPos;
-                    float pctX = (float)mapX / width;
-                    float pctY = (float)mapY / height;
+                        case var _ when text.Contains("blacksmith"):
+                            targetLocation = "Blacksmith";
+                            targetTile = new Vector2(3, 15);
+                            break;
 
-                    if (pctX < 0.25f && pctY < 0.4f)
-                    {
-                        targetLocation = "Desert";
-                        targetTile = new Vector2(25, 35);
-                    }
-                    else if (pctX < 0.35f && pctY >= 0.4f && pctY < 0.65f)
-                    {
-                        targetLocation = "Farm";
-                        targetTile = new Vector2(64, 30);
-                    }
-                    else if (pctX < 0.35f && pctY >= 0.65f)
-                    {
-                        targetLocation = "Forest";
-                        targetTile = new Vector2(80, 20);
-                    }
-                    else if (pctY < 0.3f)
-                    {
-                        if (pctX > 0.6f)
-                        {
+                        case var _ when text.Contains("clinic"):
+                        case var _ when text.Contains("hospital"):
+                            targetLocation = "Hospital";
+                            targetTile = new Vector2(10, 18);
+                            break;
+
+                        case var _ when text.Contains("museum"):
+                            targetLocation = "ArchaeologyHouse";
+                            targetTile = new Vector2(3, 10);
+                            break;
+
+                        case var _ when text.Contains("saloon"):
+                            targetLocation = "Saloon";
+                            targetTile = new Vector2(18, 20);
+                            break;
+
+                        case var _ when text.Contains("joja"):
+                            targetLocation = "JojaMart";
+                            targetTile = new Vector2(13, 28);
+                            break;
+
+                        // ===== BEACH =====
+                        case var _ when text.Contains("beach"):
+                        case var _ when text.Contains("willy"):
+                            targetLocation = "Beach";
+                            targetTile = new Vector2(39, 1);
+                            break;
+
+                        // ===== MOUNTAIN =====
+                        case var _ when text.Contains("mountain"):
+                        case var _ when text.Contains("mine"):
+                        case var _ when text.Contains("linus"):
+                        case var _ when text.Contains("guild"):
+                        case var _ when text.Contains("robin"):
+                        case var _ when text.Contains("carpenter"):
                             targetLocation = "Mountain";
-                            targetTile = new Vector2(50, 20);
-                        }
-                        else
-                        {
+                            targetTile = new Vector2(40, 13);
+                            break;
+
+                        // ===== RAILROAD =====
+                        case var _ when text.Contains("railroad"):
+                        case var _ when text.Contains("spa"):
+                        case var _ when text.Contains("bath"):
                             targetLocation = "Railroad";
-                            targetTile = new Vector2(20, 45);
-                        }
-                    }
-                    else if (pctY > 0.75f)
-                    {
-                        targetLocation = "Beach";
-                        targetTile = new Vector2(40, 10);
-                    }
-                    else if (pctX > 0.7f && pctY < 0.5f)
-                    {
-                        targetLocation = "Mountain";
-                        targetTile = new Vector2(90, 35);
-                    }
-                    else
-                    {
-                        targetLocation = "Town";
-                        targetTile = new Vector2(40, 40);
+                            targetTile = new Vector2(29, 58);
+                            break;
+
+                        // ===== FOREST =====
+                        case var _ when text.Contains("forest"):
+                        case var _ when text.Contains("marnie"):
+                        case var _ when text.Contains("leah"):
+                            targetLocation = "Forest";
+                            targetTile = new Vector2(27, 12);
+                            break;
+
+                        case var _ when text.Contains("wizard"):
+                            targetLocation = "WizardHouse";
+                            targetTile = new Vector2(6, 18);
+                            break;
+
+                        // ===== SECRET WOODS =====
+                        case var _ when text.Contains("secret woods"):
+                        case var _ when text.Contains("woods"):
+                            targetLocation = "Woods";
+                            targetTile = new Vector2(8, 9);
+                            break;
+
+                        // ===== DESERT =====
+                        case var _ when text.Contains("desert"):
+                        case var _ when text.Contains("oasis"):
+                        case var _ when text.Contains("sandy"):
+                            targetLocation = "Desert";
+                            targetTile = new Vector2(35, 43);
+                            break;
+
+                        // ===== FARM =====
+                        case var _ when text.Contains("farm"):
+                            targetLocation = "Farm";
+                            targetTile = new Vector2(64, 15);
+                            break;
                     }
                 }
-
                 if (!string.IsNullOrEmpty(targetLocation))
                 {
                     isChoosingTeleportDestination = false;
@@ -627,20 +613,6 @@ namespace NewLanguageProject
         {
             if (!Context.IsWorldReady)
                 return;
-
-            if (Game1.player.itemToEat != null && Game1.player.itemToEat.ItemId == TimeCharmItemId)
-            {
-                wasEatingTimeCharm = true;
-            }
-            else if (wasEatingTimeCharm)
-            {
-                wasEatingTimeCharm = false;
-
-                slowedTimeAdvancesRemaining = 6;
-                shouldBlockNextTimeAdvance = true;
-                Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.",
-                    HUDMessage.newQuest_type));
-            }
         }
 
         private void OnTimeChanged(object? sender, TimeChangedEventArgs e)
@@ -727,6 +699,14 @@ namespace NewLanguageProject
                 addingBonusItem = false;
 
                 Game1.addHUDMessage(new HUDMessage("+1 overgrown crop", HUDMessage.newQuest_type));
+            }
+            foreach (var removedItem in e.Removed)
+            {
+                if (removedItem is StardewValley.Object item && item.ItemId == TimeCharmItemId)
+                {
+                    StartTimeSlow();
+                    break;
+                }
             }
         }
 
@@ -1251,6 +1231,12 @@ namespace NewLanguageProject
             }
 
             return false;
+        }
+        private void StartTimeSlow()
+        {
+            slowedTimeAdvancesRemaining = 6;
+            shouldBlockNextTimeAdvance = true;
+            Game1.addHUDMessage(new HUDMessage("Time bends around you for 1 in-game hour.", HUDMessage.newQuest_type));
         }
 
         private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
