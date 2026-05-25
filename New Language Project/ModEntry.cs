@@ -85,7 +85,7 @@ namespace NewLanguageProject
             shouldBlockNextTimeAdvance = false;
             wasEatingTimeCharm = false;
 
-            Game1.player.health = Math.Max(Game1.player.health, 300);
+            Game1.player.health = 100000; //i dont wanna die 
 
             if (Game1.random.NextDouble() < 0.35)
             {
@@ -959,7 +959,7 @@ namespace NewLanguageProject
                 if (!location.terrainFeatures.TryGetValue(tile, out TerrainFeature feature) || feature is not Tree tree)
                     continue;
 
-                tree.health.Value = 0; // Forced 0 health for instant breakage
+                tree.health.Value = 0; 
 
                 MethodInfo? performToolAction = feature.GetType().GetMethod(
                     "performToolAction",
