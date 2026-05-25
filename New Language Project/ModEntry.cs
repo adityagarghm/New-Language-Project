@@ -85,7 +85,8 @@ namespace NewLanguageProject
             shouldBlockNextTimeAdvance = false;
             wasEatingTimeCharm = false;
 
-            Game1.player.health = 100000; //i dont wanna die 
+            Game1.player.maxHealth = 100000;
+            Game1.player.health = Game1.player.maxHealth; //i dont wanna die 
 
             if (Game1.random.NextDouble() < 0.35)
             {
@@ -274,112 +275,108 @@ namespace NewLanguageProject
 
                 string targetLocation = "";
                 Vector2 targetTile = new Vector2(20, 20);
-                if (!string.IsNullOrEmpty(hoverText))
+            if (!string.IsNullOrEmpty(hoverText))
+            {
+                string text = hoverText.ToLower();
+
+                switch (text)
                 {
-                    string text = hoverText.ToLower();
+                    case var _ when text.Contains("mayor"):
+                    case var _ when text.Contains("lewis"):
+                    case var _ when text.Contains("mansion"):
+                        targetLocation = "ManorHouse";
+                        targetTile = new Vector2(4, 10);
+                        break;
 
-                    switch (text)
-                    {
-                        // ===== TOWN =====
-                        case var _ when text.Contains("town"):
-                        case var _ when text.Contains("pelican"):
-                            targetLocation = "Town";
-                            targetTile = new Vector2(29, 67);
-                            break;
+                    case var _ when text.Contains("blacksmith"):
+                    case var _ when text.Contains("clint"):
+                        targetLocation = "Blacksmith";
+                        targetTile = new Vector2(3, 15);
+                        break;
 
-                        case var _ when text.Contains("pierre"):
-                            targetLocation = "SeedShop";
-                            targetTile = new Vector2(4, 19);
-                            break;
+                    case var _ when text.Contains("fish"):
+                    case var _ when text.Contains("willy"):
+                        targetLocation = "FishShop";
+                        targetTile = new Vector2(6, 6);
+                        break;
 
-                        case var _ when text.Contains("blacksmith"):
-                            targetLocation = "Blacksmith";
-                            targetTile = new Vector2(3, 15);
-                            break;
+                    case var _ when text.Contains("clinic"):
+                    case var _ when text.Contains("hospital"):
+                    case var _ when text.Contains("harvey"):
+                        targetLocation = "Hospital";
+                        targetTile = new Vector2(10, 18);
+                        break;
 
-                        case var _ when text.Contains("clinic"):
-                        case var _ when text.Contains("hospital"):
-                            targetLocation = "Hospital";
-                            targetTile = new Vector2(10, 18);
-                            break;
+                    case var _ when text.Contains("museum"):
+                        targetLocation = "ArchaeologyHouse";
+                        targetTile = new Vector2(3, 10);
+                        break;
 
-                        case var _ when text.Contains("museum"):
-                            targetLocation = "ArchaeologyHouse";
-                            targetTile = new Vector2(3, 10);
-                            break;
+                    case var _ when text.Contains("pierre"):
+                    case var _ when text.Contains("seed"):
+                        targetLocation = "SeedShop";
+                        targetTile = new Vector2(4, 19);
+                        break;
 
-                        case var _ when text.Contains("saloon"):
-                            targetLocation = "Saloon";
-                            targetTile = new Vector2(18, 20);
-                            break;
+                    case var _ when text.Contains("joja"):
+                        targetLocation = "JojaMart";
+                        targetTile = new Vector2(13, 28);
+                        break;
 
-                        case var _ when text.Contains("joja"):
-                            targetLocation = "JojaMart";
-                            targetTile = new Vector2(13, 28);
-                            break;
+                    case var _ when text.Contains("wizard"):
+                        targetLocation = "WizardHouse";
+                        targetTile = new Vector2(6, 18);
+                        break;
 
-                        // ===== BEACH =====
-                        case var _ when text.Contains("beach"):
-                        case var _ when text.Contains("willy"):
-                            targetLocation = "Beach";
-                            targetTile = new Vector2(39, 1);
-                            break;
+                    case var _ when text.Contains("railroad"):
+                        targetLocation = "Railroad";
+                        targetTile = new Vector2(29, 58);
+                        break;
 
-                        // ===== MOUNTAIN =====
-                        case var _ when text.Contains("mountain"):
-                        case var _ when text.Contains("mine"):
-                        case var _ when text.Contains("linus"):
-                        case var _ when text.Contains("guild"):
-                        case var _ when text.Contains("robin"):
-                        case var _ when text.Contains("carpenter"):
-                            targetLocation = "Mountain";
-                            targetTile = new Vector2(40, 13);
-                            break;
+                    case var _ when text.Contains("beach"):
+                        targetLocation = "Beach";
+                        targetTile = new Vector2(39, 1);
+                        break;
 
-                        // ===== RAILROAD =====
-                        case var _ when text.Contains("railroad"):
-                        case var _ when text.Contains("spa"):
-                        case var _ when text.Contains("bath"):
-                            targetLocation = "Railroad";
-                            targetTile = new Vector2(29, 58);
-                            break;
+                    case var _ when text.Contains("desert"):
+                    case var _ when text.Contains("oasis"):
+                        targetLocation = "Desert";
+                        targetTile = new Vector2(35, 43);
+                        break;
 
-                        // ===== FOREST =====
-                        case var _ when text.Contains("forest"):
-                        case var _ when text.Contains("marnie"):
-                        case var _ when text.Contains("leah"):
-                            targetLocation = "Forest";
-                            targetTile = new Vector2(27, 12);
-                            break;
+                    case var _ when text.Contains("forest"):
+                    case var _ when text.Contains("marnie"):
+                    case var _ when text.Contains("leah"):
+                        targetLocation = "Forest";
+                        targetTile = new Vector2(27, 12);
+                        break;
 
-                        case var _ when text.Contains("wizard"):
-                            targetLocation = "WizardHouse";
-                            targetTile = new Vector2(6, 18);
-                            break;
+                    case var _ when text.Contains("woods"):
+                    case var _ when text.Contains("secret woods"):
+                        targetLocation = "Woods";
+                        targetTile = new Vector2(8, 9);
+                        break;
 
-                        // ===== SECRET WOODS =====
-                        case var _ when text.Contains("secret woods"):
-                        case var _ when text.Contains("woods"):
-                            targetLocation = "Woods";
-                            targetTile = new Vector2(8, 9);
-                            break;
+                    case var _ when text.Contains("mountain"):
+                    case var _ when text.Contains("mine"):
+                    case var _ when text.Contains("robin"):
+                    case var _ when text.Contains("carpenter"):
+                    case var _ when text.Contains("guild"):
+                    case var _ when text.Contains("linus"):
+                        targetLocation = "Mountain";
+                        targetTile = new Vector2(40, 13);
+                        break;
 
-                        // ===== DESERT =====
-                        case var _ when text.Contains("desert"):
-                        case var _ when text.Contains("oasis"):
-                        case var _ when text.Contains("sandy"):
-                            targetLocation = "Desert";
-                            targetTile = new Vector2(35, 43);
-                            break;
-
-                        // ===== FARM =====
-                        case var _ when text.Contains("farm"):
-                            targetLocation = "Farm";
-                            targetTile = new Vector2(64, 15);
-                            break;
-                    }
+                    case var _ when text.Contains("town"):
+                    case var _ when text.Contains("pelican"):
+                    case var _ when text.Contains("saloon"):
+                    case var _ when text.Contains("lewis house"):
+                        targetLocation = "Town";
+                        targetTile = new Vector2(29, 67);
+                        break;
                 }
-                if (!string.IsNullOrEmpty(targetLocation))
+            }               
+            if (!string.IsNullOrEmpty(targetLocation))
                 {
                     isChoosingTeleportDestination = false;
                     Game1.exitActiveMenu();
