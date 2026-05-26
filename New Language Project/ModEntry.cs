@@ -282,7 +282,6 @@ namespace NewLanguageProject
                 switch (text)
                 {
                     case var _ when text.Contains("farm"):
-                    case var _ when text.Contains("home"):
                         targetLocation = "Farm";
                         targetTile = new Vector2(64, 15);
                         break;
@@ -374,8 +373,7 @@ namespace NewLanguageProject
 
                     case var _ when text.Contains("town"):
                     case var _ when text.Contains("pelican"):
-                    case var _ when text.Contains("saloon"):
-                    case var _ when text.Contains("lewis house"):
+                    case var _ when text.Contains("saloon"): 
                         targetLocation = "Town";
                         targetTile = new Vector2(29, 67);
                         break;
@@ -626,9 +624,6 @@ namespace NewLanguageProject
 
             if (isHotDay && Game1.player.currentLocation.IsOutdoors)
                 Game1.player.Stamina = Math.Max(0, Game1.player.Stamina - 1f);
-
-            if (isRainyOvergrowthDay && Game1.player.currentLocation.IsOutdoors)
-                Game1.player.health = Math.Min(500, Game1.player.health + 2);
         }
 
         private void HandleTimeSlow(TimeChangedEventArgs e)
