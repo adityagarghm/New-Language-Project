@@ -281,6 +281,11 @@ namespace NewLanguageProject
 
                 switch (text)
                 {
+                    case var _ when text.Contains("farm"):
+                    case var _ when text.Contains("home"):
+                        targetLocation = "Farm";
+                        targetTile = new Vector2(64, 15);
+                        break;
                     case var _ when text.Contains("mayor"):
                     case var _ when text.Contains("lewis"):
                     case var _ when text.Contains("mansion"):
